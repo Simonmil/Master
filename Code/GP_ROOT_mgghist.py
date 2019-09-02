@@ -10,10 +10,10 @@ from sklearn.preprocessing import normalize
 R = r.TRandom(0)
 
 SignalOn = True
-#SignalOn = False
+SignalOn = False
 
 sigmodel = True
-#sigmodel = False
+sigmodel = False
 
 def background_function(vars,pars):
     return pars[0]*np.exp(pars[1] + pars[2]*(vars[0]-100) + pars[3]*(vars[0]-100)*(vars[0]-100))
