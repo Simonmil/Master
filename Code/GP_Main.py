@@ -14,20 +14,27 @@ SignalOn = False
 Sigmodel = True
 Sigmodel = False
 
-def background_function(vars,pars):
-    print(type(vars),type(pars))
+
+def epoly2(vars,pars):
     return pars[0]*np.exp(pars[1] + pars[2]*(vars[0] - 100) + pars[3]*(vars[0]-100)*(vars[0]-100))
 
-def signal_function(vars,pars):
+
+def Gaussian(vars,pars):
     return pars[2]/(np.sqrt(2*np.pi)*pars[1])*np.exp(-0.5*((vars[0]-pars[0])/pars[1])**2)
 
 def sig_plus_bgr(vars,pars):
     return pars[0]*np.exp(pars[1] + pars[2]*(vars[0]-100) + pars[3]*(vars[0]-100)*(vars[0]-100)) + pars[6]/(np.sqrt(2*np.pi)*pars[5])*np.exp(-0.5*((vars[0]-pars[4])/pars[5])**2)
 
-#def Bernstein_poly(vars,pars):
-#    return 
+def Bern(vars,pars):
+    pars_coef = []
+    for i in range(len(pars)):
+        pars_coef.append(pars[i])
+    pars_coef = np.array(pars_coef).reshape(-1,1)
+    return BPoly(pars_coef[0:-2],[pars_coef[-2][0],pars_coef[-1][0]])(vars[0])
+    #bp = BPoly(pars[0:-2],pars[-2:])
+    #return bp(vars[0])
 
-#Bernstein_poly()
+
 def neg_log_like(p):
     ge.set_parameter_vector(p)
     return -ge.log_likelihood(toy)
@@ -47,10 +54,35 @@ binwidth = h_hist.GetBinWidth(1)
 nbins = h_hist.GetNbinsX()
 xmin = h_hist.GetXaxis().GetXmin()
 xmax = h_hist.GetXaxis().GetXmax()
-
 h_hist.Rebin(int(2./((xmax-xmin)/nbins)))
-nbins = h_hist.GetNbinsX()
-binwidth = h_hist.GetBinWidth(1)
+
+
+
+
+
+""" Now we have read the file containing the histogram and rebinned for H->gamgam. To remove any poisson noise as much as possible
+we fit the data with a Bernstein polynomial of degreee 5. This polynomial, with added Poisson noise, epoly2 should be able to fit
+for small luminosities. Then we see if epoly2 and GP can follow for increasing Lum. We will also fit with other polynomials, like Bern 3 and 4."""
+
+Bern5 = r.TF1("Bern5",Bern,xmin,xmax,8)
+Bern5.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
+Bern5.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
+Bern5.FixParameter(6,xmin)
+Bern5.FixParameter(7,xmax)
+h_hist.Fit(Bern5,"SRW0Q")
+h_truth = Bern5.CreateHistogram()
+binwidth = h_truth.GetBinWidth(1)
+nbins = h_truth.GetNbinsX()
+xmin = h_truth.GetXaxis().GetXmin()
+xmax = h_truth.GetXaxis().GetXmax()
+h_truth.Rebin(int(2./((xmax-xmin)/nbins)))
+
+
+
+"""
+The fitting of toy models.
+Here, ROOT is used to fit the toy distributions with an ad-hoc function, and GP is fitted using George.
+"""
 
 Ntoys = int(sys.argv[1])
 mean = 135
@@ -62,17 +94,15 @@ if Sigmodel:
     fit_function.SetParameters(1,2,-0.03,1e-9,mean,sigma,Amp)
     fit_function.SetParNames("Norm","a","b","c","Mean","Sigma","Amplitude")
 else:
-    fit_function = r.TF1("fit_function",background_function,xmin,xmax,4)
+    fit_function = r.TF1("fit_function",epoly2,xmin,xmax,4)
     fit_function.SetParameters(1,2,-0.03,1e-9)
     fit_function.SetParNames("Norm","a","b","c")
 
-
-signal = r.TF1("signal",signal_function,xmin,xmax,3)
+signal = r.TF1("signal",Gaussian,xmin,xmax,3)
 signal.SetParameters(mean,sigma,Amp)
 signal.SetParNames("Mean","Sigma","Amplitude")
-h_toy = h_hist.Clone("h_toy")
+h_toy = h_truth.Clone("h_toy")
 h_toy.Reset()
-
 
 lum = np.array([1,2,5,10,15,20,25,40,50,60,80,100])
 
@@ -84,13 +114,62 @@ chi2_lum_ge_err = np.zeros(len(lum))
 chi2_lum_par = np.zeros(len(lum))
 chi2_lum_par_err = np.zeros(len(lum))
 
-mass = np.zeros(h_hist.GetNbinsX())
-toy = np.zeros(h_hist.GetNbinsX())
-truth = np.zeros(h_hist.GetNbinsX())
+mass = np.zeros(h_truth.GetNbinsX())
+toy = np.zeros(h_truth.GetNbinsX())
+truth = np.zeros(h_truth.GetNbinsX())
 Error = 0
 index = 0
 
-canvas1 = r.TCanvas("canvas1","Standard Canvas",600,400)
-canvas1.SetLeftMargin(0.125)
-canvas1.SetBottomMargin(0.125)
+#canvas1 = r.TCanvas("canvas1","Standard Canvas",600,400)
+#canvas1.SetLeftMargin(0.125)
+#canvas1.SetBottomMargin(0.125)
 
+for l in lum:
+    for t in range(Ntoys):
+        for i_bin in range(1,h_truth.GetNbinsX()+1):
+            mass[i_bin-1] = h_truth.GetBinCenter(i_bin)
+            if SignalOn:
+                toy[i_bin-1] = R.Poisson(l*(Bern5(mass[i_bin-1]) + signal(mass[i_bin-1])))
+            else:
+                toy[i_bin-1] = R.Poisson(l*Bern5(mass[i_bin-1]))
+            h_toy.SetBinContent(i_bin,toy[i_bin-1])
+        
+
+
+        fit_function.SetParameters(1,1,-0.01,0)
+        fit_function.FixParameter(0,1)
+
+        fitresults = h_toy.Fit(fit_function,"SRW")
+        
+        if fitresults.Status() != 0:
+            Error += 1
+        print(t+1)
+
+        h_chi2_param[t] = fitresults.Chi2()/fitresults.Ndf()
+
+        """George"""
+        kernel_ge = np.median(toy)*george.kernels.ExpSquaredKernel(metric=1.0,block=(1000,10000000000000))
+        ge = george.GP(kernel_ge,solver=george.HODLRSolver)
+        ge.compute(mass,yerr=np.sqrt(toy))
+        m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)
+        ge.set_parameter_vector(m.x)
+        y_pred,y_cov = ge.predict(toy,mass)
+        chi2_ge = np.sum((toy-y_pred)**2/toy)
+        h_chi2_ge[t] = chi2_ge/(len(toy) - 1 - len(ge.get_parameter_vector()))
+    
+    if t == 500:
+        plt.plot(mass,toy,marker='o')
+        plt.plot(mass,y_pred)
+        plt.show()
+
+    chi2_lum_ge[index] = np.mean(h_chi2_ge)
+    chi2_lum_par[index] = np.mean(h_chi2_param)
+    index += 1
+
+plt.figure(1)
+plt.plot(lum,chi2_lum_ge,marker="o",label='GP')
+plt.plot(lum,chi2_lum_par,marker="o",label='Ad hoc')
+plt.xlabel("Lum scale")
+plt.ylabel(r'$\chi^2$/ndf')
+plt.legend()
+plt.show()
