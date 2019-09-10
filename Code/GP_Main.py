@@ -5,6 +5,10 @@ from scipy.optimize import minimize
 from scipy.interpolate import BPoly
 import george
 import sys
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF
+
+
 
 R = r.TRandom(0)
 
@@ -91,11 +95,11 @@ Amp = 200
 
 if Sigmodel:
     fit_function = r.TF1("fit_function",sig_plus_bgr,xmin,xmax,7)
-    fit_function.SetParameters(1,2,-0.03,1e-9,mean,sigma,Amp)
+    fit_function.SetParameters(1,1,-0.01,0,mean,sigma,Amp)
     fit_function.SetParNames("Norm","a","b","c","Mean","Sigma","Amplitude")
 else:
     fit_function = r.TF1("fit_function",epoly2,xmin,xmax,4)
-    fit_function.SetParameters(1,2,-0.03,1e-9)
+    fit_function.SetParameters(1,1,-0.01,0)
     fit_function.SetParNames("Norm","a","b","c")
 
 signal = r.TF1("signal",Gaussian,xmin,xmax,3)
@@ -103,16 +107,17 @@ signal.SetParameters(mean,sigma,Amp)
 signal.SetParNames("Mean","Sigma","Amplitude")
 h_toy = h_truth.Clone("h_toy")
 h_toy.Reset()
-
 lum = np.array([1,2,5,10,15,20,25,40,50,60,80,100])
 
 h_chi2_ge = np.zeros(Ntoys)
 h_chi2_param = np.zeros(Ntoys)
+h_chi2_sk = np.zeros(Ntoys)
 
 chi2_lum_ge = np.zeros(len(lum))
 chi2_lum_ge_err = np.zeros(len(lum))
 chi2_lum_par = np.zeros(len(lum))
 chi2_lum_par_err = np.zeros(len(lum))
+chi2_lum_sk = np.zeros(len(lum))
 
 mass = np.zeros(h_truth.GetNbinsX())
 toy = np.zeros(h_truth.GetNbinsX())
@@ -126,49 +131,75 @@ index = 0
 
 for l in lum:
     for t in range(Ntoys):
+        print(t+1)
         for i_bin in range(1,h_truth.GetNbinsX()+1):
             mass[i_bin-1] = h_truth.GetBinCenter(i_bin)
+
             if SignalOn:
                 toy[i_bin-1] = R.Poisson(l*(Bern5(mass[i_bin-1]) + signal(mass[i_bin-1])))
             else:
                 toy[i_bin-1] = R.Poisson(l*Bern5(mass[i_bin-1]))
             h_toy.SetBinContent(i_bin,toy[i_bin-1])
         
+        
 
-
-        fit_function.SetParameters(1,1,-0.01,0)
+        fit_function.SetParameters(1,1,-0.01,1e-6)
         fit_function.FixParameter(0,1)
+        
+        
+        fitresults = h_toy.Fit(fit_function,"SRW0Q")
 
-        fitresults = h_toy.Fit(fit_function,"SRW")
         
         if fitresults.Status() != 0:
             Error += 1
-        print(t+1)
 
         h_chi2_param[t] = fitresults.Chi2()/fitresults.Ndf()
 
         """George"""
-        kernel_ge = np.median(toy)*george.kernels.ExpSquaredKernel(metric=1.0,block=(1000,10000000000000))
-        ge = george.GP(kernel_ge,solver=george.HODLRSolver)
+        kernel_ge = np.median(toy)*george.kernels.ExpSquaredKernel(metric=1.0)#,block=(100,100000))
+        ge = george.GP(kernel_ge,solver=george.HODLRSolver)#,white_noise=np.log(np.sqrt(np.mean(toy))))
         ge.compute(mass,yerr=np.sqrt(toy))
         m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)
         ge.set_parameter_vector(m.x)
+        print(ge.get_parameter_vector())
+        #print(ge.get_parameter_bounds())
+        #print(ge.get_parameter_dict())
         y_pred,y_cov = ge.predict(toy,mass)
         chi2_ge = np.sum((toy-y_pred)**2/toy)
         h_chi2_ge[t] = chi2_ge/(len(toy) - 1 - len(ge.get_parameter_vector()))
-    
-    if t == 500:
-        plt.plot(mass,toy,marker='o')
-        plt.plot(mass,y_pred)
-        plt.show()
+        #print(ge.get_parameter_names())
+        #print(ge.get_parameter_vector())
+        #print(ge.get_parameter_bounds())
+        
+        """sklearn
+        kernel_sk = np.mean(toy)*RBF(length_scale=1.0,length_scale_bounds=(0.5,1.5))
+        sk = GaussianProcessRegressor(kernel=kernel_sk,alpha=np.sqrt(toy))
+        sk.fit(mass.reshape(-1,1),toy)
+        y_pred_sk = sk.predict(mass.reshape(-1,1))
+        chi2_sk = np.sum((toy - y_pred_sk)**2/toy)
+        h_chi2_sk[t] = chi2_sk/(len(toy) - 1 - sk.kernel_.n_dims)
+        """
+
+        #print(t+1)
+        #print(y_pred)
+        print(h_chi2_ge[t])
+        plt.clf()
+        plt.scatter(mass,toy,c='r',alpha=0.8)
+        plt.plot(mass,y_pred,'b-')
+        plt.pause(0.05)
+        
 
     chi2_lum_ge[index] = np.mean(h_chi2_ge)
     chi2_lum_par[index] = np.mean(h_chi2_param)
+    chi2_lum_sk[index] = np.mean(h_chi2_sk)
     index += 1
 
-plt.figure(1)
-plt.plot(lum,chi2_lum_ge,marker="o",label='GP')
-plt.plot(lum,chi2_lum_par,marker="o",label='Ad hoc')
+
+#print(np.mean(chi2_lum_ge))
+plt.figure(2)
+plt.plot(lum,chi2_lum_ge,marker=".",label='GP')
+plt.plot(lum,chi2_lum_par,marker=".",label='Ad hoc')
+#plt.plot(lum,chi2_lum_sk,marker=".",label='sk')
 plt.xlabel("Lum scale")
 plt.ylabel(r'$\chi^2$/ndf')
 plt.legend()
