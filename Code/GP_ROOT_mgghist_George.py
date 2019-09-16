@@ -114,7 +114,7 @@ for l in lum:
             else:
                 toy[i_bin-1] = R.Poisson(l*h_hist.GetBinContent(i_bin))
             h_toy.SetBinContent(i_bin,toy[i_bin-1])
-
+            h_toy.SetBinError(i_bin,np.sqrt(toy[i_bin-1]))
 
         if Blind:
             toy = np.delete(toy,[mean-2,mean-1,mean,mean+1,mean+2])
@@ -134,11 +134,11 @@ for l in lum:
             fit_function.SetParameters(1,1,-0.01,0,mean,sigma,Amp)
             fit_function.FixParameter(0,1)
         else:
-            fit_function.SetParameters(1,1,-0.01,0)
+            fit_function.SetParameters(1,10,-0.001,1e-6)
             fit_function.FixParameter(0,1)
         
         
-        fitresults = h_toy.Fit(fit_function,"SRW")
+        fitresults = h_toy.Fit(fit_function,"SPR")
         
         if fitresults.Status() != 0:
             Error += 1
@@ -156,7 +156,7 @@ for l in lum:
         ge.set_parameter_vector(m.x)
         print(ge.get_parameter_vector())
         y_pred,y_cov = ge.predict(toy,mass)
-        chi2_ge = np.sum((toy-y_pred)**2/toy)
+        chi2_ge = np.sum((toy-y_pred)**2/y_pred)
         #h_chi2_ge.Fill(chi2_ge/(len(toy) - 1 - len(ge.get_parameter_vector())))
         h_chi2_ge[t] = chi2_ge/(len(toy) - 1 - len(ge.get_parameter_vector()))
         print("George Chi2/ndf",h_chi2_ge[t],"Ad-hoc Chi2/ndf",h_chi2_param[t])
