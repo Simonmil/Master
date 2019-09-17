@@ -16,11 +16,13 @@ SignalOn = True
 SignalOn = False
 
 Sigmodel = True
-Sigmodel = False
+#Sigmodel = False
 
 
 def epoly2(vars,pars):
     return pars[0]*np.exp(pars[1] + pars[2]*(vars[0] - 100) + pars[3]*(vars[0]-100)*(vars[0]-100))
+def epoly2_test(x,pars):
+    return pars[0]*np.exp(pars[1] + pars[2]*(x - 100) + pars[3]*(x-100)*(x-100))
 
 
 def Gaussian(vars,pars):
@@ -100,14 +102,14 @@ if Sigmodel:
     fit_function.SetParameters(1,1,-0.01,0,mean,sigma,Amp)
     fit_function.SetParNames("Norm","a","b","c","Mean","Sigma","Amplitude")
 else:
-    fit_function = r.TF1("fit_function",epoly2,xmin,xmax,4)
-    fit_function.SetParameters(1,1,-0.01,0)
-    fit_function.SetParNames("Norm","a","b","c")
-    #fit_function = r.TF1("fit_function",Bern,xmin,xmax,8)
-    #fit_function.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
-    #fit_function.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
-    #fit_function.FixParameter(6,xmin)
-    #fit_function.FixParameter(7,xmax)
+    #fit_function = r.TF1("fit_function",epoly2,xmin,xmax,4)
+    #fit_function.SetParameters(1,1,-0.01,0)
+    #fit_function.SetParNames("Norm","a","b","c")
+    fit_function = r.TF1("fit_function",Bern,xmin,xmax,8)
+    fit_function.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
+    fit_function.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
+    fit_function.FixParameter(6,xmin)
+    fit_function.FixParameter(7,xmax)
 
 signal = r.TF1("signal",Gaussian,xmin,xmax,3)
 signal.SetParameters(mean,sigma,Amp)
@@ -151,21 +153,20 @@ for l in lum:
             h_toy.SetBinContent(i_bin,toy[i_bin-1]) 
         
         
-        fit_function.SetParameters(1,1,-0.01,1e-6)
-        fit_function.FixParameter(0,1)
-        #fit_function.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
-        #fit_function.FixParameter(6,xmin)
-        #fit_function.FixParameter(7,xmax)
+        #fit_function.SetParameters(1,1,-0.01,1e-6)
+        #fit_function.FixParameter(0,1)
+        fit_function.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
+        fit_function.FixParameter(6,xmin)
+        fit_function.FixParameter(7,xmax)
         
         #print(h_toy.Print("All"))
         fitresults = h_toy.Fit(fit_function,"SPR")
         
-        
         if fitresults.Status() != 0:
             Error += 1
+        print(Error)
 
-        h_chi2_param[t] = fitresults.Chi2()/fitresults.Ndf()
-
+        #print("ROOT Chi2/ndf: ",h_chi2_param[t],"Manual Chi2/ndf: ",Chi2_par_man)
         """George"""
         kernel_ge = np.median(toy)*george.kernels.ExpSquaredKernel(metric=np.exp(6))#,block=(1,10))
         ge = george.GP(kernel_ge,solver=george.HODLRSolver,mean=np.median(toy))#,white_noise=np.log(np.sqrt(np.mean(toy))))
@@ -177,7 +178,7 @@ for l in lum:
         #print(ge.get_parameter_dict())
         y_pred,y_cov = ge.predict(toy,mass)
         chi2_ge = np.sum((toy-y_pred)**2/y_pred)
-        h_chi2_ge[t] = chi2_ge/(len(toy) - 1 - len(ge.get_parameter_vector()))
+        h_chi2_ge[t] = chi2_ge/(len(toy) - len(ge.get_parameter_vector()))
         #print(ge.get_parameter_names())
         #print(ge.get_parameter_vector())
         #print(ge.get_parameter_bounds())
