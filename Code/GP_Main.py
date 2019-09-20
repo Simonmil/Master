@@ -7,17 +7,27 @@ import george
 import sys
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF
-
+#import plot_logl as plog
 
 
 R = r.TRandom(0)
 
-SignalOn = True
-SignalOn = False
+if sys.argv[2] == "SignalOn" or sys.argv[2] == "signalon":
+    SignalOn = True
+else:
+    SignalOn = False
 
-Sigmodel = True
-#Sigmodel = False
+if sys.argv[3] == "Sigmodel" or sys.argv[3] == "sigmodel":
+    Sigmodel = True
+else:
+    Sigmodel = False
 
+if sys.argv[4] == "epoly2":
+    Epoly2_fit = True
+    Bern5_fit = False
+elif sys.argv[4] == "Bern5":
+    Epoly2_fit = False
+    Bern5_fit = True
 
 def epoly2(vars,pars):
     return pars[0]*np.exp(pars[1] + pars[2]*(vars[0] - 100) + pars[3]*(vars[0]-100)*(vars[0]-100))
@@ -77,7 +87,7 @@ Bern5.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
 Bern5.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
 Bern5.FixParameter(6,xmin)
 Bern5.FixParameter(7,xmax)
-h_hist.Fit(Bern5,"SR0Q")
+h_hist.Fit(Bern5,"SR0")
 h_truth = Bern5.CreateHistogram()
 binwidth = h_truth.GetBinWidth(1)
 nbins = h_truth.GetNbinsX()
@@ -101,10 +111,11 @@ if Sigmodel:
     fit_function = r.TF1("fit_function",sig_plus_bgr,xmin,xmax,7)
     fit_function.SetParameters(1,1,-0.01,0,mean,sigma,Amp)
     fit_function.SetParNames("Norm","a","b","c","Mean","Sigma","Amplitude")
-else:
-    #fit_function = r.TF1("fit_function",epoly2,xmin,xmax,4)
-    #fit_function.SetParameters(1,1,-0.01,0)
-    #fit_function.SetParNames("Norm","a","b","c")
+elif Epoly2_fit:
+    fit_function = r.TF1("fit_function",epoly2,xmin,xmax,4)
+    fit_function.SetParameters(1,1,-0.01,0)
+    fit_function.SetParNames("Norm","a","b","c")
+elif Bern5_fit:
     fit_function = r.TF1("fit_function",Bern,xmin,xmax,8)
     fit_function.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
     fit_function.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
@@ -120,13 +131,15 @@ lum = np.array([1,2,5,10,15,20,25,40,50,60,80,100])
 
 h_chi2_ge = np.zeros(Ntoys)
 h_chi2_param = np.zeros(Ntoys)
-h_chi2_sk = np.zeros(Ntoys)
+h_chi2_base = np.zeros(Ntoys)
 
 chi2_lum_ge = np.zeros(len(lum))
 chi2_lum_ge_err = np.zeros(len(lum))
+chi2_lum_base = np.zeros(len(lum))
+chi2_lum_base_err = np.zeros(len(lum))
 chi2_lum_par = np.zeros(len(lum))
 chi2_lum_par_err = np.zeros(len(lum))
-#chi2_lum_sk = np.zeros(len(lum))
+
 
 mass = np.zeros(h_truth.GetNbinsX())
 toy = np.zeros(h_truth.GetNbinsX())
@@ -148,50 +161,56 @@ for l in lum:
             if SignalOn:
                 toy[i_bin-1] = R.Poisson(l*(Bern5(mass[i_bin-1]) + signal(mass[i_bin-1])))
             else:
-                #toy[i_bin-1] = R.Poisson(l*Bern5(mass[i_bin-1]))
                 toy[i_bin-1] = R.Poisson(l*Bern5(mass[i_bin-1]))
             h_toy.SetBinContent(i_bin,toy[i_bin-1]) 
+            h_toy.SetBinError(i_bin,np.sqrt(toy[i_bin-1]))
+            
         
+        if Epoly2_fit:
+            fit_function.SetParameters(1,1,-0.01,1e-6)
+            fit_function.FixParameter(0,1)
+        elif Bern5_fit:
+            #fit_function.SetParameters(100,100,100,100,100,100)
+            fit_function.SetParameters(1000,1000,100,100,100,200)
+            fit_function.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
+            fit_function.FixParameter(6,xmin)
+            fit_function.FixParameter(7,xmax)
         
-        #fit_function.SetParameters(1,1,-0.01,1e-6)
-        #fit_function.FixParameter(0,1)
-        fit_function.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
-        fit_function.FixParameter(6,xmin)
-        fit_function.FixParameter(7,xmax)
-        
-        #print(h_toy.Print("All"))
+
         fitresults = h_toy.Fit(fit_function,"SPR")
         
         if fitresults.Status() != 0:
             Error += 1
-        print(Error)
 
-        #print("ROOT Chi2/ndf: ",h_chi2_param[t],"Manual Chi2/ndf: ",Chi2_par_man)
+
+        h_chi2_param[t] = fitresults.Chi2()/fitresults.Ndf()
+
+
         """George"""
+
         kernel_ge = np.median(toy)*george.kernels.ExpSquaredKernel(metric=np.exp(6))#,block=(1,10))
         ge = george.GP(kernel_ge,solver=george.HODLRSolver,mean=np.median(toy))#,white_noise=np.log(np.sqrt(np.mean(toy))))
         ge.compute(mass,yerr=np.sqrt(toy))
         m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)#,bounds=((1,1000),(6,15)))
         ge.set_parameter_vector(m.x)
+        if l == 1:
+            ge_base = ge
+
+        
+        #plog.logl_landscape(toy,mass,ge)        
         print(ge.get_parameter_vector())
-        #print(ge.get_parameter_bounds())
-        #print(ge.get_parameter_dict())
         y_pred,y_cov = ge.predict(toy,mass)
         chi2_ge = np.sum((toy-y_pred)**2/y_pred)
         h_chi2_ge[t] = chi2_ge/(len(toy) - len(ge.get_parameter_vector()))
-        #print(ge.get_parameter_names())
-        #print(ge.get_parameter_vector())
-        #print(ge.get_parameter_bounds())
         print("George Chi2/ndf",h_chi2_ge[t],"Ad-hoc Chi2/ndf",h_chi2_param[t])
+
+
+        """Base"""
+        #y_pred_base,y_cov_base = ge_base.predict(toy,mass)
+        #chi2_base = np.sum((toy-y_pred_base)**2/y_pred_base)
+        #h_chi2_base[t] = chi2_base/(len(toy) - len(ge_base.get_parameter_vector()))
         
-        """sklearn
-        kernel_sk = np.mean(toy)*RBF(length_scale=1.0,length_scale_bounds=(0.5,1.5))
-        sk = GaussianProcessRegressor(kernel=kernel_sk,alpha=np.sqrt(toy))
-        sk.fit(mass.reshape(-1,1),toy)
-        y_pred_sk = sk.predict(mass.reshape(-1,1))
-        chi2_sk = np.sum((toy - y_pred_sk)**2/toy)
-        h_chi2_sk[t] = chi2_sk/(len(toy) - 1 - sk.kernel_.n_dims)
-        """
+         
         if h_chi2_ge[t] < 0.01:
             Overfit += 1 
 
@@ -209,7 +228,7 @@ for l in lum:
 
     chi2_lum_ge[index] = np.mean(h_chi2_ge)
     chi2_lum_par[index] = np.mean(h_chi2_param)
-    #chi2_lum_sk[index] = np.mean(h_chi2_sk)
+#    chi2_lum_base[index] = np.mean(h_chi2_base)
     index += 1
 
 
@@ -217,13 +236,13 @@ for l in lum:
 plt.figure(2)
 plt.plot(lum,chi2_lum_ge,marker=".",label='GP',c='b')
 plt.plot(lum,chi2_lum_par,marker=".",label='Ad hoc',c='r')
-#plt.plot(lum,chi2_lum_sk,marker=".",label='sk')
+#plt.plot(lum,chi2_lum_base,marker=".",label='Base',c='g')
 plt.xlabel("Lum scale")
 plt.ylabel(r'$\chi^2$/ndf')
 plt.legend()
 plt.title("Chi2/ndf Ad-hoc and GP")
 plt.figure(3)
-plt.plot(lum,chi2_lum_par,marker=".",label='Ad hoc',c='r')
+plt.plot(lum,chi2_lum_ge,marker=".",label='GP',c='r')
 #plt.plot(lum,chi2_lum_sk,marker=".",label='sk')
 plt.xlabel("Lum scale")
 plt.ylabel(r'$\chi^2$/ndf')
