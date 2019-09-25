@@ -1,0 +1,12 @@
+name: CtaSimpKernel
+doc: I should document my code.
+stationary: false
+params: [a,d]
+
+value: return std::exp( (d - (x1 + x2))/(2*a)  ) ; 
+
+grad:
+    x1: return -1.0 * (1/(2*a)) * std::exp(d-(x1+x2)/(2*a)); 
+    x2: return -1.0 * (1/(2*a)) * std::exp(d-(x1+x2)/(2*a));
+    a: return  -1.0 * ((d - (x1 + x2))/(2*a*a)) * std::exp( (d - (x1 + x2))/(2*a)  );
+    d: return (1/(2*a)) * std::exp( (d - (x1 + x2))/(2*a)  );
