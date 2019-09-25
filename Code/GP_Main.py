@@ -189,7 +189,7 @@ for l in lum:
         """George"""
 
         kernel_ge = np.median(toy)*george.kernels.ExpSquaredKernel(metric=np.exp(6))#,block=(1,10))
-        ge = george.GP(kernel_ge,solver=george.HODLRSolver,mean=np.median(toy))#,white_noise=np.log(np.sqrt(np.mean(toy))))
+        ge = george.GP(kernel_ge,solver=george.HODLRSolver,mean=np.median(toy),white_noise=np.exp(0.1))#,white_noise=np.log(np.sqrt(np.mean(toy))))
         ge.compute(mass,yerr=np.sqrt(toy))
         m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)#,bounds=((1,1000),(6,15)))
         ge.set_parameter_vector(m.x)
@@ -199,7 +199,7 @@ for l in lum:
         
         #plog.logl_landscape(toy,mass,ge)        
         print(ge.get_parameter_vector())
-        y_pred,y_cov = ge.predict(toy,mass)
+        y_pred, y_var = ge.predict(toy,mass,return_var = True)
         chi2_ge = np.sum((toy-y_pred)**2/y_pred)
         h_chi2_ge[t] = chi2_ge/(len(toy) - len(ge.get_parameter_vector()))
         print("George Chi2/ndf",h_chi2_ge[t],"Ad-hoc Chi2/ndf",h_chi2_param[t])
@@ -223,6 +223,7 @@ for l in lum:
         plt.clf()
         plt.scatter(mass,toy,c='r',alpha=0.8)
         plt.plot(mass,y_pred,'b-')
+        plt.fill_between(mass,y_pred-np.sqrt(y_var),y_pred+np.sqrt(y_var),color='g',alpha=0.2)
         plt.pause(0.05)
         
 
