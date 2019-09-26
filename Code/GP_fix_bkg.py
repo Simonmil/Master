@@ -83,10 +83,16 @@ for i_bin in range(1,h_truth.GetNbinsX()+1):
     toy[i_bin-1] = R.Poisson(Bern5(mass[i_bin-1]))
     toysig[i_bin-1] = R.Poisson(Bern5(mass[i_bin-1]) + signa(mass[i_bin-1]))
 
-    kernel_ge = np.median(toy)*george.kernels.ExpSquaredKernel(metric=np.exp(6))
-    ge = george.GP(kernel_ge,solver=george.HODLRSolver)
+    kernel_bkg = np.median(toy)*george.kernels.ExpSquaredKernel(metric=np.exp(6))
+    ge = george.GP(kernel_bkg,solver=george.HODLRSolver)
     ge.compute(mass,yerr=np.sqrt(toy))
     m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)
     ge.set_parameter_vector(m.x)
+    y_pred = ge.predict(toy,mass)[0]
 
-
+    kernel_sig = george.kernels.LocalGaussianKernel()
+    kernel_bkgsig = kernel_bkg + kernel_sig
+    ge = george.GP(kernel=kernel_bkgsig,solver=george.HODLRSolver)
+    m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)
+    ge.set_parameter_vector(m.x)
+    y_pred = ge.predict(toysig,mass)[0]
