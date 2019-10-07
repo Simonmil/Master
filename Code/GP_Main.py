@@ -7,7 +7,7 @@ import george
 import sys
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF
-#import plot_logl as plog
+from iminuit import Minuit
 
 
 R = r.TRandom(0)
@@ -51,14 +51,48 @@ def Bern(vars,pars):
     #return bp(vars[0])
 
 
-def neg_log_like(p):
-    ge.set_parameter_vector(p)
+def neg_log_like(Amp,length):
+    ge.set_parameter_vector((Amp,length))
     return -ge.log_likelihood(toy)
 
 def grad_neg_log_like(p):
     ge.set_parameter_vector(p)
     return -ge.grad_log_likelihood(toy)
 
+
+class log_like_gp:
+    def __init__(self,x,y):
+        self.x = x
+        self.y = y
+    
+    def __call__(self,Amp,length):
+        kernel = Amp * george.kernels.ExpSquaredKernel(metric=length)
+        gp = george.GP(kernel = kernel,solver=george.HODLRSolver)
+        try:
+            gp.compute(self.x,yerr=np.sqrt(self.y))
+            return -gp.log_likelihood(self.y,self.x)
+        except:
+            np.inf
+
+def fit_minuit_gp(num,lnprob):
+    minLLH = np.inf
+    best_fit_parameters = (0,0)
+    for i in range(num):
+        print(i+1)
+        init0 = np.random.random()*1e2
+        init1 = np.random.random()*10.
+        m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,
+                    error_Amp = 10,error_length = 0.1,
+                    limit_Amp = (100.,1e15), limit_length = (1,50))
+        
+        m.migrad()
+        if m.fval < minLLH:
+            minLLH = m.fval
+            best_fit_parameters = m.args
+    
+    print("min LL",minLLH)
+    print("best fit parameters",best_fit_parameters)
+    return minLLH, best_fit_parameters
 
 tf = r.TFile.Open("diphox_shape_withGJJJDY_WithEffCor.root")
 
@@ -147,6 +181,7 @@ truth = np.zeros(h_truth.GetNbinsX())
 Error = 0
 index = 0
 Overfit = 0
+res = np.zeros(h_truth.GetNbinsX())
 
 canvas1 = r.TCanvas("canvas1","Standard Canvas",600,400)
 canvas1.SetLeftMargin(0.125)
@@ -164,7 +199,6 @@ for l in lum:
                 toy[i_bin-1] = R.Poisson(l*Bern5(mass[i_bin-1]))
             h_toy.SetBinContent(i_bin,toy[i_bin-1]) 
             h_toy.SetBinError(i_bin,np.sqrt(toy[i_bin-1]))
-            
         
         if Epoly2_fit:
             fit_function.SetParameters(1,1,-0.01,1e-6)
@@ -187,15 +221,15 @@ for l in lum:
 
 
         """George"""
-
-        kernel_ge = np.median(toy)*george.kernels.ExpSquaredKernel(metric=np.exp(6))#,block=(1,10))
-        ge = george.GP(kernel_ge,solver=george.HODLRSolver,mean=np.median(toy),white_noise=np.exp(0.1))#,white_noise=np.log(np.sqrt(np.mean(toy))))
+        lnprob = log_like_gp(mass,toy)
+        minimumLLH, best_fit_params = fit_minuit_gp(100,lnprob)
+        kernel_ge = best_fit_params[0]*george.kernels.ExpSquaredKernel(metric=best_fit_params[1])#,block=(1,10))
+        ge = george.GP(kernel_ge,solver=george.HODLRSolver,mean=np.median(toy))#,white_noise=np.log(np.sqrt(np.mean(toy))))
         ge.compute(mass,yerr=np.sqrt(toy))
-        m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)#,bounds=((1,1000),(6,15)))
-        ge.set_parameter_vector(m.x)
-        if l == 1:
-            ge_base = ge
+        print(ge.get_parameter_vector())
 
+
+        #m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)#,bounds=((1,1000),(6,15)))
         
         #plog.logl_landscape(toy,mass,ge)        
         print(ge.get_parameter_vector())
@@ -205,10 +239,15 @@ for l in lum:
         print("George Chi2/ndf",h_chi2_ge[t],"Ad-hoc Chi2/ndf",h_chi2_param[t])
 
 
-        """Base"""
-        #y_pred_base,y_cov_base = ge_base.predict(toy,mass)
-        #chi2_base = np.sum((toy-y_pred_base)**2/y_pred_base)
-        #h_chi2_base[t] = chi2_base/(len(toy) - len(ge_base.get_parameter_vector()))
+        res = y_pred - toy
+
+        plt.plot(mass,res)
+        plt.show()
+
+
+
+
+
         
          
         if h_chi2_ge[t] < 0.01:
@@ -217,8 +256,7 @@ for l in lum:
         h_toy.Draw("pe")
         canvas1.Update()
 
-        #print(t+1)
-        #print(y_pred)
+
 
         plt.clf()
         plt.scatter(mass,toy,c='r',alpha=0.8)
@@ -229,7 +267,7 @@ for l in lum:
 
     chi2_lum_ge[index] = np.mean(h_chi2_ge)
     chi2_lum_par[index] = np.mean(h_chi2_param)
-#    chi2_lum_base[index] = np.mean(h_chi2_base)
+
     index += 1
 
 
@@ -237,14 +275,14 @@ for l in lum:
 plt.figure(2)
 plt.plot(lum,chi2_lum_ge,marker=".",label='GP',c='b')
 plt.plot(lum,chi2_lum_par,marker=".",label='Ad hoc',c='r')
-#plt.plot(lum,chi2_lum_base,marker=".",label='Base',c='g')
+
 plt.xlabel("Lum scale")
 plt.ylabel(r'$\chi^2$/ndf')
 plt.legend()
 plt.title("Chi2/ndf Ad-hoc and GP")
 plt.figure(3)
 plt.plot(lum,chi2_lum_ge,marker=".",label='GP',c='r')
-#plt.plot(lum,chi2_lum_sk,marker=".",label='sk')
+
 plt.xlabel("Lum scale")
 plt.ylabel(r'$\chi^2$/ndf')
 plt.legend()
