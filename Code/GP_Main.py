@@ -78,12 +78,12 @@ def fit_minuit_gp(num,lnprob):
     minLLH = np.inf
     best_fit_parameters = (0,0)
     for i in range(num):
-        print(i+1)
+        #print(i+1)
         init0 = np.random.random()*1e2
         init1 = np.random.random()*10.
         m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,
                     error_Amp = 10,error_length = 0.1,
-                    limit_Amp = (100.,1e15), limit_length = (1,50))
+                    limit_Amp = (100.,1e15), limit_length = (1,5000))
         
         m.migrad()
         if m.fval < minLLH:
@@ -162,7 +162,7 @@ signal.SetParNames("Mean","Sigma","Amplitude")
 h_toy = h_truth.Clone("h_toy")
 h_toy.Reset()
 lum = np.array([1,2,5,10,15,20,25,40,50,60,80,100])
-
+lum = np.array([1,25,50,100])
 h_chi2_ge = np.zeros(Ntoys)
 h_chi2_param = np.zeros(Ntoys)
 h_chi2_base = np.zeros(Ntoys)
@@ -241,8 +241,7 @@ for l in lum:
 
         res = y_pred - toy
 
-        plt.plot(mass,res)
-        plt.show()
+
 
 
 
