@@ -161,8 +161,8 @@ signal.SetParameters(mean,sigma,Amp)
 signal.SetParNames("Mean","Sigma","Amplitude")
 h_toy = h_truth.Clone("h_toy")
 h_toy.Reset()
-lum = np.array([1,2,5,10,15,20,25,40,50,60,80,100])
-lum = np.array([1,25,50,100])
+lum = np.array([1,10,20,40,50,60,80,100])
+#lum = np.array([1,25,50,100])
 h_chi2_ge = np.zeros(Ntoys)
 h_chi2_param = np.zeros(Ntoys)
 h_chi2_base = np.zeros(Ntoys)
@@ -174,6 +174,10 @@ chi2_lum_base_err = np.zeros(len(lum))
 chi2_lum_par = np.zeros(len(lum))
 chi2_lum_par_err = np.zeros(len(lum))
 
+h_mean_best_Amplitude = np.zeros(len(lum))
+h_mean_best_lengthscale = np.zeros(len(lum))
+h_best_Amplitude = np.zeros(Ntoys)
+h_best_lengthscale = np.zeros(Ntoys)
 
 mass = np.zeros(h_truth.GetNbinsX())
 toy = np.zeros(h_truth.GetNbinsX())
@@ -228,7 +232,8 @@ for l in lum:
         ge.compute(mass,yerr=np.sqrt(toy))
         print(ge.get_parameter_vector())
 
-
+        h_best_Amplitude[t] = best_fit_params[0]
+        h_best_lengthscale[t] = best_fit_params[1]
         #m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)#,bounds=((1,1000),(6,15)))
         
         #plog.logl_landscape(toy,mass,ge)        
@@ -263,7 +268,8 @@ for l in lum:
         plt.fill_between(mass,y_pred-np.sqrt(y_var),y_pred+np.sqrt(y_var),color='g',alpha=0.2)
         plt.pause(0.05)
         
-
+    h_mean_best_Amplitude[index] = np.mean(h_best_Amplitude)
+    h_mean_best_lengthscale[index] = np.mean(h_best_lengthscale)
     chi2_lum_ge[index] = np.mean(h_chi2_ge)
     chi2_lum_par[index] = np.mean(h_chi2_param)
 
@@ -286,6 +292,16 @@ plt.xlabel("Lum scale")
 plt.ylabel(r'$\chi^2$/ndf')
 plt.legend()
 plt.title("Chi2/ndf Ad-hoc")
+
+plt.figure(4)
+plt.plot(lum,h_mean_best_Amplitude,marker='o')
+plt.xlabel("Luminosity scale factor")
+plt.ylabel("Amp")
+
+plt.figure(5)
+plt.plot(lum,h_mean_best_lengthscale,marker='o')
+plt.xlabel("Luminosity scale factor")
+plt.ylabel("Lengthscale")
 
 plt.show()
 
