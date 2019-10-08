@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import ROOT as r
-from scipy.optimize import minimize
+from scipy.optimize import minimize, curve_fit
 from scipy.interpolate import BPoly
 import george
 import sys
@@ -83,7 +83,7 @@ def fit_minuit_gp(num,lnprob):
         init1 = np.random.random()*10.
         m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,
                     error_Amp = 10,error_length = 0.1,
-                    limit_Amp = (100.,1e15), limit_length = (1,5000))
+                    limit_Amp = (100.,1e15), limit_length = (1,20000))
         
         m.migrad()
         if m.fval < minLLH:
@@ -162,7 +162,7 @@ signal.SetParNames("Mean","Sigma","Amplitude")
 h_toy = h_truth.Clone("h_toy")
 h_toy.Reset()
 lum = np.array([1,10,20,40,50,60,80,100])
-#lum = np.array([1,25,50,100])
+lum = np.array([1,125,500,750,1000,2500,5000,7500,10000,12500])
 h_chi2_ge = np.zeros(Ntoys)
 h_chi2_param = np.zeros(Ntoys)
 h_chi2_base = np.zeros(Ntoys)
@@ -266,7 +266,7 @@ for l in lum:
         plt.scatter(mass,toy,c='r',alpha=0.8)
         plt.plot(mass,y_pred,'b-')
         plt.fill_between(mass,y_pred-np.sqrt(y_var),y_pred+np.sqrt(y_var),color='g',alpha=0.2)
-        plt.pause(0.05)
+        #plt.pause(0.05)
         
     h_mean_best_Amplitude[index] = np.mean(h_best_Amplitude)
     h_mean_best_lengthscale[index] = np.mean(h_best_lengthscale)
@@ -275,6 +275,26 @@ for l in lum:
 
     index += 1
 
+
+def expo(x,a,b):
+    return a*np.exp(b*x)
+
+def poly(x,a,b,c):
+    return a*x**2 + b*x + c
+
+def poly3(x,a,b,c,d):
+    return a*x**3 + b*x**2 + c*x + d
+
+def lin(x,a,b):
+    return a*x + b
+
+h_mean_best_Amplitude_log = np.log(h_mean_best_Amplitude)
+h_mean_best_lengthscale_log = np.log(h_mean_best_lengthscale)
+popt_exp, pcov_exp = curve_fit(expo,lum,h_mean_best_Amplitude,[np.exp(10),0.01])
+popt_poly, pcov_poly = curve_fit(poly,lum,h_mean_best_Amplitude,[np.exp(10),np.exp(5),np.exp(10)])
+popt_poly3, pcov_poly3 = curve_fit(poly3,lum,h_mean_best_Amplitude,[np.exp(10),np.exp(5),np.exp(10),np.exp(5)])
+#popt_lin, pcov_lin = curve_fit(lin,lum,h_mean_best_Amplitude,[])
+#print(popt_poly)
 
 #print(np.mean(chi2_lum_ge))
 plt.figure(2)
@@ -294,14 +314,23 @@ plt.legend()
 plt.title("Chi2/ndf Ad-hoc")
 
 plt.figure(4)
-plt.plot(lum,h_mean_best_Amplitude,marker='o')
+plt.plot(lum,h_mean_best_Amplitude,marker='o',c='b')
+plt.plot(lum,expo(lum,*popt_exp),'r-',label='exp')
+plt.plot(lum,poly(lum,*popt_poly),'g--',label='poly')
+plt.plot(lum,poly3(lum,*popt_poly3),'c-.',label='Poly3')
 plt.xlabel("Luminosity scale factor")
 plt.ylabel("Amp")
+plt.legend()
 
 plt.figure(5)
-plt.plot(lum,h_mean_best_lengthscale,marker='o')
+#plt.plot(lum,h_mean_best_lengthscale,marker='o')
+#plt.xlabel("Luminosity scale factor")
+#plt.ylabel("Lengthscale")
+plt.plot(lum,h_mean_best_Amplitude_log,marker='o',c='b')
 plt.xlabel("Luminosity scale factor")
-plt.ylabel("Lengthscale")
+plt.ylabel("Amp")
+#plt.legend()
+
 
 plt.show()
 
