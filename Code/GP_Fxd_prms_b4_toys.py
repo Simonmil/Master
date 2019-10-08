@@ -48,7 +48,7 @@ def fit_minuit_gp(num,lnprob):
         init1 = np.random.random()*10.
         m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,
                     error_Amp = 10, error_length = 0.1,
-                    limit_Amp = (100,1e15), limit_length = (1,20000))
+                    limit_Amp = (100,1e15), limit_length = (1,1000))
         
         m.migrad()
         if m.fval < minLLH:
@@ -93,7 +93,7 @@ h_truth.Rebin(int(2./((xmax-xmin)/nbins)))
 
 
 
-Ntoys = 10000
+Ntoys = 10
 mean = 125
 sigma = 2
 Amp = 200
@@ -110,6 +110,7 @@ fit_function.SetParNames("Norm","a","b","c")
 h_toy = h_truth.Clone("h_toy")
 h_toy.Reset()
 lum = np.array([1,50,100,500,1000])
+lum = np.array([1,15,30,50,70,85,100])
 
 
 mass = np.zeros(h_truth.GetNbinsX())
@@ -131,8 +132,8 @@ bestminLHH = np.inf
 for i_bin in range(1,h_truth.GetNbinsX()+1):
     mass[i_bin-1] = h_truth.GetBinCenter(i_bin)
     toy[i_bin-1] = R.Poisson(Bern5(mass[i_bin-1]))
-lnprob = log_like_gp(mass,toy)
-minLLH, best_fit_parameters = fit_minuit_gp(100,lnprob)
+#lnprob = log_like_gp(mass,toy)
+#minLLH, best_fit_parameters = fit_minuit_gp(100,lnprob)
 #params[i][:] = fit_parameters
 
 
@@ -151,14 +152,14 @@ chi2_fit = chi2/(len(toy)-len(gp.get_parameter_vector()))
 #    best_fit_parameters = fit_parameters
 
 
-print("Min LLH",minLLH,"Params",np.log(best_fit_parameters[0]),np.log(best_fit_parameters[1]))
+#print("Min LLH",minLLH,"Params",np.log(best_fit_parameters[0]),np.log(best_fit_parameters[1]))
 
 
 chi2_mean_gp = np.zeros(len(lum))
 chi2_mean_par = np.zeros(len(lum))
 chi2_fit = np.zeros(Ntoys)
 h_chi2 = r.TH1D("h_chi2","Chi2 ad-hoc",100,0,20)
-color = ['r','b','g','c','m']
+color = ['r','b','g','c','m','k','chartreuse']
 index = 0
 Error = 0
 
@@ -190,7 +191,12 @@ for l in lum:
 
 
         """george"""
-        kernel = l**2*best_fit_parameters[0]*george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
+        if i%1000 == 0:
+            print(i/1000.)
+        
+        lnprob = log_like_gp(mass,toy)
+        minLLH, best_fit_parameters = fit_minuit_gp(100,lnprob)
+        kernel = best_fit_parameters[0]*george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
         #kernel = np.exp(100)*george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
         gp = george.GP(kernel,solver=george.HODLRSolver,mean=np.median(toy))
         gp.compute(mass,yerr=np.sqrt(toy))
@@ -200,9 +206,6 @@ for l in lum:
         chi2 = np.sum((toy-y_pred)**2/y_pred)
         chi2_fit[i] = chi2/(len(toy)-len(gp.get_parameter_vector()))
 
-        if i%1000 == 0:
-            print(i/1000.)
-        
         #plt.clf()
         #plt.scatter(mass,toy,c='r',alpha=0.8)
         #plt.plot(mass,y_pred,'b-')
@@ -234,3 +237,14 @@ plt.xlabel('Luminosity scale factor')
 plt.ylabel(r'$\chi^2/ndf$')
 plt.legend()
 plt.show()
+
+
+
+
+""" Spurious signal testing"""
+
+
+
+
+
+
