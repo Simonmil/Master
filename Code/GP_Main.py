@@ -31,15 +31,11 @@ elif sys.argv[4] == "Bern5":
 
 def epoly2(vars,pars):
     return pars[0]*np.exp(pars[1] + pars[2]*(vars[0] - 100) + pars[3]*(vars[0]-100)*(vars[0]-100))
-def epoly2_test(x,pars):
-    return pars[0]*np.exp(pars[1] + pars[2]*(x - 100) + pars[3]*(x-100)*(x-100))
 
 
 def Gaussian(vars,pars):
     return pars[2]/(np.sqrt(2*np.pi)*pars[1])*np.exp(-0.5*((vars[0]-pars[0])/pars[1])**2)
 
-def sig_plus_bgr(vars,pars):
-    return pars[0]*np.exp(pars[1] + pars[2]*(vars[0]-100) + pars[3]*(vars[0]-100)*(vars[0]-100)) + pars[6]/(np.sqrt(2*np.pi)*pars[5])*np.exp(-0.5*((vars[0]-pars[4])/pars[5])**2)
 
 def Bern(vars,pars):
     pars_coef = []
@@ -110,6 +106,8 @@ h_hist.Rebin(int(2./((xmax-xmin)/nbins)))
 Draw all histograms in every step
 """
 
+print(int(2./((xmax-xmin)/nbins)))
+
 
 
 """ Now we have read the file containing the histogram and rebinned for H->gamgam. To remove any poisson noise as much as possible
@@ -122,13 +120,6 @@ Bern5.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
 Bern5.FixParameter(6,xmin)
 Bern5.FixParameter(7,xmax)
 h_hist.Fit(Bern5,"SR0")
-h_truth = Bern5.CreateHistogram()
-binwidth = h_truth.GetBinWidth(1)
-nbins = h_truth.GetNbinsX()
-
-xmin = h_truth.GetXaxis().GetXmin()
-xmax = h_truth.GetXaxis().GetXmax()
-h_truth.Rebin(int(2./((xmax-xmin)/nbins))) 
 
 
 """
@@ -137,7 +128,7 @@ Here, ROOT is used to fit the toy distributions with an ad-hoc function, and GP 
 """
 
 Ntoys = int(sys.argv[1])
-mean = 135
+mean = 125
 sigma = 2
 Amp = 200
 
@@ -159,18 +150,16 @@ elif Bern5_fit:
 signal = r.TF1("signal",Gaussian,xmin,xmax,3)
 signal.SetParameters(mean,sigma,Amp)
 signal.SetParNames("Mean","Sigma","Amplitude")
-h_toy = h_truth.Clone("h_toy")
+h_toy = h_hist.Clone("h_toy")
 h_toy.Reset()
-lum = np.array([1,10,20,40,50,60,80,100])
-lum = np.array([1,125,500,750,1000,2500,5000,7500,10000,12500])
+lum = np.array([1,15,30,50,60,80,100])
+#lum = np.array([1,125,500,750,1000,2500,5000,7500,10000,12500])
 h_chi2_ge = np.zeros(Ntoys)
 h_chi2_param = np.zeros(Ntoys)
-h_chi2_base = np.zeros(Ntoys)
+
 
 chi2_lum_ge = np.zeros(len(lum))
 chi2_lum_ge_err = np.zeros(len(lum))
-chi2_lum_base = np.zeros(len(lum))
-chi2_lum_base_err = np.zeros(len(lum))
 chi2_lum_par = np.zeros(len(lum))
 chi2_lum_par_err = np.zeros(len(lum))
 
@@ -179,23 +168,31 @@ h_mean_best_lengthscale = np.zeros(len(lum))
 h_best_Amplitude = np.zeros(Ntoys)
 h_best_lengthscale = np.zeros(Ntoys)
 
-mass = np.zeros(h_truth.GetNbinsX())
-toy = np.zeros(h_truth.GetNbinsX())
-truth = np.zeros(h_truth.GetNbinsX())
+mass = np.zeros(h_hist.GetNbinsX())
+toy = np.zeros(h_hist.GetNbinsX())
+truth = np.zeros(h_hist.GetNbinsX())
 Error = 0
 index = 0
 Overfit = 0
-res = np.zeros(h_truth.GetNbinsX())
+res = np.zeros(h_hist.GetNbinsX())
+
+
+h_chi2 = r.TH1D("h_chi2","Chi2 ad-hoc",100,0,20)
+color = ['r','b','g','c','m','k','chartreuse','lime']
+
 
 canvas1 = r.TCanvas("canvas1","Standard Canvas",600,400)
 canvas1.SetLeftMargin(0.125)
 canvas1.SetBottomMargin(0.125)
 
+hs = r.THStack("hs","Chi2 ad-hoc")
+plt.figure(1)
+
 for l in lum:
     for t in range(Ntoys):
         print(t+1)
-        for i_bin in range(1,h_truth.GetNbinsX()+1):
-            mass[i_bin-1] = h_truth.GetBinCenter(i_bin)
+        for i_bin in range(1,h_hist.GetNbinsX()+1):
+            mass[i_bin-1] = h_hist.GetBinCenter(i_bin)
 
             if SignalOn:
                 toy[i_bin-1] = R.Poisson(l*(Bern5(mass[i_bin-1]) + signal(mass[i_bin-1])))
@@ -215,14 +212,14 @@ for l in lum:
             fit_function.FixParameter(7,xmax)
         
 
-        fitresults = h_toy.Fit(fit_function,"SPR")
+        fitresults = h_toy.Fit(fit_function,"SPR0Q")
         
         if fitresults.Status() != 0:
             Error += 1
 
 
-        h_chi2_param[t] = fitresults.Chi2()/fitresults.Ndf()
-
+        h_chi2_par = fitresults.Chi2()/fitresults.Ndf()
+        h_chi2.Fill(h_chi2_par)
 
         """George"""
         lnprob = log_like_gp(mass,toy)
@@ -236,46 +233,41 @@ for l in lum:
         h_best_lengthscale[t] = best_fit_params[1]
         #m = minimize(neg_log_like,ge.get_parameter_vector(),jac=grad_neg_log_like)#,bounds=((1,1000),(6,15)))
         
-        #plog.logl_landscape(toy,mass,ge)        
-        print(ge.get_parameter_vector())
         y_pred, y_var = ge.predict(toy,mass,return_var = True)
         chi2_ge = np.sum((toy-y_pred)**2/y_pred)
         h_chi2_ge[t] = chi2_ge/(len(toy) - len(ge.get_parameter_vector()))
-        print("George Chi2/ndf",h_chi2_ge[t],"Ad-hoc Chi2/ndf",h_chi2_param[t])
+        print("George Chi2/ndf",h_chi2_ge[t],"Ad-hoc Chi2/ndf",h_chi2_par)
 
-
-        res = y_pred - toy
-
-
-
-
-
-
-
-        
+        if t%1000 == 0:
+            print(t/1000.)        
          
         if h_chi2_ge[t] < 0.01:
             Overfit += 1 
 
-        h_toy.Draw("pe")
-        canvas1.Update()
-
-
-
-        plt.clf()
-        plt.scatter(mass,toy,c='r',alpha=0.8)
-        plt.plot(mass,y_pred,'b-')
-        plt.fill_between(mass,y_pred-np.sqrt(y_var),y_pred+np.sqrt(y_var),color='g',alpha=0.2)
+        #plt.clf()
+        #plt.scatter(mass,toy,c='r',alpha=0.8)
+        #plt.plot(mass,y_pred,'b-')
+        #plt.fill_between(mass,y_pred-np.sqrt(y_var),y_pred+np.sqrt(y_var),color='g',alpha=0.2)
         #plt.pause(0.05)
         
     h_mean_best_Amplitude[index] = np.mean(h_best_Amplitude)
     h_mean_best_lengthscale[index] = np.mean(h_best_lengthscale)
+    
     chi2_lum_ge[index] = np.mean(h_chi2_ge)
-    chi2_lum_par[index] = np.mean(h_chi2_param)
+    chi2_lum_ge_err[index] = np.std(h_chi2_ge)
+    chi2_lum_par[index] = h_chi2.GetMean()
+    chi2_lum_par_err[index] = h_chi2.GetStdDev()
+    h_chi2_l = h_chi2.Clone("h_chi2_l")
+    hs.Add(h_chi2_l)
+
+    h_chi2.Reset()
+    plt.hist(h_chi2_ge,bins=50,color=color[index],label='Lum: %.1f'%l,alpha=0.8,histtype='step')
+    plt.xlabel("Chi2")
+    plt.ylabel("#")
 
     index += 1
 
-
+print(chi2_lum_ge_err,chi2_lum_par_err)
 def expo(x,a,b):
     return a*np.exp(b*x)
 
@@ -288,18 +280,25 @@ def poly3(x,a,b,c,d):
 def lin(x,a,b):
     return a*x + b
 
-h_mean_best_Amplitude_log = np.log(h_mean_best_Amplitude)
-h_mean_best_lengthscale_log = np.log(h_mean_best_lengthscale)
-popt_exp, pcov_exp = curve_fit(expo,lum,h_mean_best_Amplitude,[np.exp(10),0.01])
-popt_poly, pcov_poly = curve_fit(poly,lum,h_mean_best_Amplitude,[np.exp(10),np.exp(5),np.exp(10)])
-popt_poly3, pcov_poly3 = curve_fit(poly3,lum,h_mean_best_Amplitude,[np.exp(10),np.exp(5),np.exp(10),np.exp(5)])
+#h_mean_best_Amplitude_log = np.log(h_mean_best_Amplitude)
+#h_mean_best_lengthscale_log = np.log(h_mean_best_lengthscale)
+#popt_exp, pcov_exp = curve_fit(expo,lum,h_mean_best_Amplitude,[np.exp(10),0.01])
+#popt_poly, pcov_poly = curve_fit(poly,lum,h_mean_best_Amplitude,[np.exp(10),np.exp(5),np.exp(10)])
+##popt_poly3, pcov_poly3 = curve_fit(poly3,lum,h_mean_best_Amplitude,[np.exp(10),np.exp(5),np.exp(10),np.exp(5)])
 #popt_lin, pcov_lin = curve_fit(lin,lum,h_mean_best_Amplitude,[])
 #print(popt_poly)
 
 #print(np.mean(chi2_lum_ge))
+
+hs.Draw("plc nostack")
+canvas1.Update()
+plt.legend()
+plt.title("Test statistic distribution")
+
+
 plt.figure(2)
-plt.plot(lum,chi2_lum_ge,marker=".",label='GP',c='b')
-plt.plot(lum,chi2_lum_par,marker=".",label='Ad hoc',c='r')
+plt.errorbar(lum,chi2_lum_ge,yerr=chi2_lum_ge_err,marker=".",label='GP',c='b')
+plt.errorbar(lum,chi2_lum_par,yerr=chi2_lum_par_err,marker=".",label='Ad hoc',c='r')
 
 plt.xlabel("Lum scale")
 plt.ylabel(r'$\chi^2$/ndf')
@@ -312,7 +311,7 @@ plt.xlabel("Lum scale")
 plt.ylabel(r'$\chi^2$/ndf')
 plt.legend()
 plt.title("Chi2/ndf Ad-hoc")
-
+"""
 plt.figure(4)
 plt.plot(lum,h_mean_best_Amplitude,marker='o',c='b')
 plt.plot(lum,expo(lum,*popt_exp),'r-',label='exp')
@@ -321,12 +320,12 @@ plt.plot(lum,poly3(lum,*popt_poly3),'c-.',label='Poly3')
 plt.xlabel("Luminosity scale factor")
 plt.ylabel("Amp")
 plt.legend()
-
+"""
 plt.figure(5)
 #plt.plot(lum,h_mean_best_lengthscale,marker='o')
 #plt.xlabel("Luminosity scale factor")
 #plt.ylabel("Lengthscale")
-plt.plot(lum,h_mean_best_Amplitude_log,marker='o',c='b')
+plt.plot(lum,h_mean_best_Amplitude,marker='o',c='b')
 plt.xlabel("Luminosity scale factor")
 plt.ylabel("Amp")
 #plt.legend()
