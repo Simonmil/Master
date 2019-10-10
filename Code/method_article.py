@@ -112,25 +112,34 @@ h_toysig = h_truth.Clone("h_toysig")
 h_toy.Reset()
 h_toysig.Reset()
 
-for i_bin in range(1,h_truth.GetNbinsX()+1):
-    mass[i_bin-1] = h_truth.GetBinCenter(i_bin)
-    toy[i_bin-1] = R.Poisson(50*Bern5(mass[i_bin-1]))
+lum = [1,25,50,75,100]
+for l in lum:
+    for t in range(5):
+        for i_bin in range(1,h_truth.GetNbinsX()+1):
+            mass[i_bin-1] = h_truth.GetBinCenter(i_bin)
+            toy[i_bin-1] = R.Poisson(l*Bern5(mass[i_bin-1]))
 
-lnprob = log_like_gp(mass,toy)
-minimumLLH, BFP = fit_minuit_gp(100,lnprob)
-kernel = BFP[0]*george.kernels.ExpSquaredKernel(metric=BFP[1])
-gp = george.GP(kernel=kernel)
-gp.compute(mass,yerr=np.sqrt(toy))
-par = np.zeros(len(BFP)-2)
-par[0] = BFP[2]
-par[1] = BFP[3]
-par[2] = BFP[4]
+        lnprob = log_like_gp(mass,toy)
+        minimumLLH, BFP = fit_minuit_gp(100,lnprob)
+        kernel = BFP[0]*george.kernels.ExpSquaredKernel(metric=BFP[1])
+        gp = george.GP(kernel=kernel)
+        gp.compute(mass,yerr=np.sqrt(toy))
+        par = np.zeros(len(BFP)-2)
+        par[0] = BFP[2]
+        par[1] = BFP[3]
+        par[2] = BFP[4]
 
-meanGP = gp.predict(toy - mean_gp(par,mass),mass)[0]
+        meanGP,var_gp = gp.predict(toy - mean_gp(par,mass),mass,return_var=True)
 
-meanGPnom = meanGP + model_3params(mass,par)
+        meanGPnom = meanGP + model_3params(mass,par)
 
-plt.scatter(mass,toy,color='r',marker='.')
-plt.plot(mass,meanGPnom)
-plt.show()
+        chi2 = np.sum((toy-meanGPnom)**2/meanGPnom)
+        chi2_ndf = chi2/(len(toy)-len(gp.get_parameter_vector()))
+        print(chi2_ndf)
+
+        plt.clf()
+        plt.scatter(mass,toy,color='r',marker='.')
+        plt.plot(mass,meanGPnom)
+        plt.fill_between(mass,meanGPnom-np.sqrt(var_gp),meanGPnom+np.sqrt(var_gp),color='g',alpha=0.2)
+        plt.pause(0.05)
 
