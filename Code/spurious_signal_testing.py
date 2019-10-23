@@ -208,8 +208,8 @@ Error = 0
 """ Spurious signal testing"""
 
 lum = [1,25,50,75,100]
-
-Ntoys = 5
+lum = [50]
+Ntoys = 1
 for l in lum:
     for t in range(Ntoys):
         for i_bin in range(1,h_truth.GetNbinsX()+1):
@@ -263,7 +263,8 @@ for l in lum:
         plt.plot(mass,res_pred,'k-')
         plt.fill_between(mass,y_pred-np.sqrt(y_var),y_pred+np.sqrt(y_var),color='k',alpha=0.4)
         plt.fill_between(mass,res_pred-res_Std,res_pred+res_Std,color='k',alpha=0.4)
-        plt.pause(0.05)
+        #plt.pause(0.05)
+        plt.show()
 
 
 

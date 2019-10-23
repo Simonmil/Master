@@ -43,7 +43,7 @@ def fit_minuit_gp(num,lnprob):
     minLLH = np.inf
     best_fit_parameters = (0,0)
     for i in range(num):
-        print(i+1)
+        #print(i+1)
         init0 = np.random.random()*1e2
         init1 = np.random.random()*10.
         m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,
@@ -76,7 +76,7 @@ class log_like_gp_sig:
         except:
             return np.inf
 
-def fit_minuit_gp_sig(num,lnprob):
+def fit_minuit_gp_sig(num,lnprob,Bkg_prms):
     minLLH = np.inf
     best_fit_parameters = (0,0)
     for i in range(num):
@@ -86,9 +86,10 @@ def fit_minuit_gp_sig(num,lnprob):
         init2 = np.random.random()*10.
         init3 = np.random.random()*1.
         init4 = np.random.random()*10.
-        m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,Sigamp=init2,sigma=init3,mass=init4,
+        m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=Bkg_prms[0],length=Bkg_prms[1],Sigamp=init2,sigma=0.7,mass=125,
                     error_Amp = 10, error_length = 0.1,error_Sigamp=np.sqrt(init2),error_sigma=0.01,error_mass=0.1,
-                    limit_Amp = (100,1e15), limit_length = (1,20000),limit_Sigamp = (0,400),limit_sigma=(0.5,4),limit_mass=(120,130))
+                    limit_Amp = (100,1e15), limit_length = (1,20000),limit_Sigamp = (0,400000),limit_sigma=(0.5,4),limit_mass=(120,130),
+                    fix_Amp=True,fix_length=True,fix_sigma=True,fix_mass=True)
         
         m.migrad()
         if m.fval < minLLH:
@@ -114,8 +115,7 @@ nbins = h_hist.GetNbinsX()
 xmin = h_hist.GetXaxis().GetXmin()
 xmax = h_hist.GetXaxis().GetXmax()
 h_hist.Rebin(int(2./((xmax-xmin)/nbins)))
-
-
+h_hist.Scale(10)
 
 Bern5 = r.TF1("Bern5",Bern,xmin,xmax,8)
 Bern5.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
@@ -140,7 +140,7 @@ xmax = h_truth.GetXaxis().GetXmax()
 Ntoys = 1
 mean = 125
 sigma = 2
-Amp = 200
+Amp = 1800
 
 
 signal = r.TF1("signal",Gaussian,xmin,xmax,3)
@@ -155,7 +155,7 @@ h_toy = h_truth.Clone("h_toy")
 h_toy.Reset()
 lum = np.array([1,50,100,500,1000])
 lum = np.array([1,15,30,50,70,85,100])
-
+lum = np.array([1,50,100])
 
 mass = np.zeros(h_truth.GetNbinsX())
 toy = np.zeros(h_truth.GetNbinsX())
@@ -200,9 +200,12 @@ chi2_fit = chi2/(len(toy)-len(gp.get_parameter_vector()))
 
 
 chi2_mean_gp = np.zeros(len(lum))
-chi2_mean_ge_err = np.zeros(len(lum))
+chi2_mean_gp_err = np.zeros(len(lum))
 chi2_mean_par = np.zeros(len(lum))
 chi2_mean_par_err = np.zeros(len(lum))
+chi2 = np.zeros(Ntoys)
+chi2_mean_noNDF = np.zeros(len(lum))
+chi2_var_noNDF = np.zeros(len(lum))
 chi2_fit = np.zeros(Ntoys)
 h_chi2 = r.TH1D("h_chi2","Chi2 ad-hoc",100,0,20)
 color = ['r','b','g','c','m','k','chartreuse']
@@ -248,9 +251,9 @@ for l in lum:
         gp.compute(mass,yerr=np.sqrt(toy))
 
         y_pred = gp.predict(toy,mass)[0]
-
-        chi2 = np.sum((toy-y_pred)**2/y_pred)
-        chi2_fit[i] = chi2/(len(toy)-len(gp.get_parameter_vector()))
+        print(len(toy)-len(gp.get_parameter_vector(include_frozen=True)))
+        chi2[i] = np.sum((toy-y_pred)**2/y_pred)
+        chi2_fit[i] = chi2[i]/(len(toy)-3-len(gp.get_parameter_vector()))
 
         #plt.clf()
         #plt.scatter(mass,toy,c='r',alpha=0.8)
@@ -258,6 +261,7 @@ for l in lum:
         #plt.pause(0.05)
 
     chi2_mean_par[index] = h_chi2.GetMean()
+    chi2_mean_par_err[index] = h_chi2.GetStdDev()
     h_chi2_l = h_chi2.Clone("h_chi2_l")
     hs.Add(h_chi2_l)
 
@@ -265,7 +269,10 @@ for l in lum:
     plt.hist(chi2_fit,bins=50,color=color[index],label='Lum: %.1f'%l,alpha=0.8,histtype='step')
     plt.xlabel("Chi2")
     plt.ylabel("#")
+    chi2_mean_noNDF[index] = np.mean(chi2)
+    chi2_var_noNDF[index] = np.var(chi2)
     chi2_mean_gp[index] = np.mean(chi2_fit)
+    chi2_mean_gp_err[index] = np.std(chi2_fit)
 
     index += 1
 
@@ -274,26 +281,28 @@ canvas1.Update()
 plt.legend()
 plt.title("Test statistic distribution")
 #plt.show()
-
+plt.savefig('Test_statistic_distribution.png',format='png')
 plt.figure(2)
 
-plt.errorbar(lum,chi2_mean_gp,color='r', label='GP')
-plt.errorbar(lum,chi2_mean_par,color='b',label='Ad-hoc')
+plt.errorbar(lum,chi2_mean_gp,yerr=chi2_mean_gp_err,color='r', label='GP',marker='.')
+plt.errorbar(lum,chi2_mean_par,yerr=chi2_mean_par_err,color='b',label='Ad-hoc',marker='.')
 plt.xlabel('Luminosity scale factor')
 plt.ylabel(r'$\chi^2/ndf$')
 plt.legend()
+plt.savefig('Lum_chi2_mean.png',format='png')
+
 plt.show()
 
-
+print("chi2 mean: ",chi2_mean_noNDF," chi2 var: ", chi2_var_noNDF, " factor: ", chi2_var_noNDF/chi2_mean_noNDF)
 
 
 """ Spurious signal testing"""
 
 
-Ntoys = 10
+Ntoys = 1
 for t in range(Ntoys):
     for i_bin in range(1,h_truth.GetNbinsX()+1):
-        toy[i_bin-1] = R.Poisson(50*(Bern5(mass[i_bin-1])+signal(mass[i_bin-1])))
+        toy[i_bin-1] = R.Poisson(10*(Bern5(mass[i_bin-1])+signal(mass[i_bin-1])))
         h_toy.SetBinContent(i_bin,toy[i_bin-1])
         h_toy.SetBinError(i_bin,np.sqrt(toy[i_bin-1]))
     mass_blind = []
@@ -315,8 +324,8 @@ for t in range(Ntoys):
     y_pred, y_var = gp.predict(toy_blind,mass,return_var=True)
     
     lnprob_sig = log_like_gp_sig(mass,toy)
-    minLLH_sig,best_fit_parameters_sig = fit_minuit_gp_sig(100,lnprob_sig)
-    kernel1 = best_fit_parameters[0] * george.kernels.ExpSquaredKernel(metric=best_fit_parameters_sig[1])
+    minLLH_sig,best_fit_parameters_sig = fit_minuit_gp_sig(100,lnprob_sig,best_fit_parameters)
+    kernel1 = best_fit_parameters[0] * george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
     kernel2 = best_fit_parameters_sig[2]*george.kernels.LocalGaussianKernel(location=best_fit_parameters_sig[4],log_width=best_fit_parameters_sig[3]**2)
     kernel = kernel1 + kernel2
     gp = george.GP(kernel=kernel,solver=george.HODLRSolver)
@@ -328,14 +337,15 @@ for t in range(Ntoys):
     res_pred = y_pred_sig-y_pred
     res_Std = np.sqrt(y_var + y_var_sig)
 
-    plt.clf()
+    #plt.clf()
     plt.scatter(mass,toy,c='r',alpha=0.8,marker='.')
     plt.plot(mass,y_pred,'b-')
     plt.plot(mass,y_pred_sig,'g-')
     plt.plot(mass,res_pred,'k-')
     plt.fill_between(mass,y_pred-np.sqrt(y_var),y_pred+np.sqrt(y_var),color='k',alpha=0.4)
     plt.fill_between(mass,res_pred-res_Std,res_pred+res_Std,color='k',alpha=0.4)
-    plt.pause(0.05)
+    #plt.pause(0.05)
+    plt.show()
 
 
 
