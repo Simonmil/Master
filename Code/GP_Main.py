@@ -8,7 +8,7 @@ import sys
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF
 from iminuit import Minuit
-
+import time
 
 R = r.TRandom(0)
 
@@ -20,8 +20,6 @@ Sigmodel = False
 
 Epoly2_fit = False
 Epoly2_fit = True
-Bern5_fit = True
-Bern5_fit = False
 
 
 def epoly2(vars,pars):
@@ -40,15 +38,6 @@ def Bern(vars,pars):
     return BPoly(pars_coef[0:-2],[pars_coef[-2][0],pars_coef[-1][0]])(vars[0])
     #bp = BPoly(pars[0:-2],pars[-2:])
     #return bp(vars[0])
-
-
-def neg_log_like(Amp,length):
-    ge.set_parameter_vector((Amp,length))
-    return -ge.log_likelihood(toy)
-
-def grad_neg_log_like(p):
-    ge.set_parameter_vector(p)
-    return -ge.grad_log_likelihood(toy)
 
 
 class log_like_gp:
@@ -93,7 +82,7 @@ class log_like_gp_sig:
     def __call__(self,Amp,length,Sigamp,sigma,mass):
         
         kernel1 = Amp * george.kernels.ExpSquaredKernel(metric=length)
-        kernel2 = Sigamp*george.kernels.LocalGaussianKernel(location=mass,log_width=np.exp(sigma))
+        kernel2 = Sigamp*george.kernels.LocalGaussianKernel(location=mass,log_width=sigma)
         kernel = kernel1 + kernel2
         gp = george.GP(kernel=kernel,solver=george.HODLRSolver)
         #print(gp.get_parameter_vector())
@@ -116,20 +105,26 @@ def fit_minuit_gp_sig(num,lnprob):
         init2 = 0
         m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,Sigamp=init2,sigma=1,mass=125,
                     error_Amp = 1000, error_length = 10,error_Sigamp=1,error_sigma=0.01,error_mass=5,
-                    limit_Amp = (100,1e15), limit_length = (4000,20000), limit_Sigamp=(0,100000000),limit_sigma=(0,4),limit_mass=(100,180),
-                    fix_sigma = True,fix_mass = True)
+                    limit_Amp = (100,1e15), limit_length = (4000,20000), limit_Sigamp=(0,10000000000000),limit_sigma=(0,4),limit_mass=(100,180),
+                    fix_sigma = False,fix_mass = True)
         
         m.migrad()
+        #print(m.migrad_ok())
         if m.fval < minLLH:
+            #print(m.np_errors())
+            print(m.migrad_ok())
+            #print(m.args[2]/m.np_errors()[2])
             m_best = m
             minLLH = m.fval
             best_fit_parameters = m.args
-            best_fit_parameters_errors = m.errors
-    
-    #m_best.draw_profile("Sigamp")
+            best_fit_parameters_errors = m.np_errors()
+            #print(m.mnprofile("Sigamp",bound=(best_fit_parameters[2]/2,best_fit_parameters[2]*1.5),bins=3))
+            
+    #m_best.minos()
+    #m_best.draw_mnprofile("Sigamp")
     print("min LL",minLLH)
     print("best fit parameters",best_fit_parameters)
-    return minLLH, best_fit_parameters
+    return minLLH, best_fit_parameters, best_fit_parameters_errors
 
 tf = r.TFile.Open("diphox_shape_withGJJJDY_WithEffCor.root")
 
@@ -166,22 +161,13 @@ Here, ROOT is used to fit the toy distributions with an ad-hoc function, and GP 
 Ntoys = 1
 mean = 125
 sigma = 2
-Amp = 1800
+Amp = 2000
 
-if Sigmodel:
-    fit_function = r.TF1("fit_function",sig_plus_bgr,xmin,xmax,7)
-    fit_function.SetParameters(1,1,-0.01,0,mean,sigma,Amp)
-    fit_function.SetParNames("Norm","a","b","c","Mean","Sigma","Amplitude")
-elif Epoly2_fit:
-    fit_function = r.TF1("fit_function",epoly2,xmin,xmax,4)
-    fit_function.SetParameters(1,1,-0.01,0)
-    fit_function.SetParNames("Norm","a","b","c")
-elif Bern5_fit:
-    fit_function = r.TF1("fit_function",Bern,xmin,xmax,8)
-    fit_function.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
-    fit_function.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
-    fit_function.FixParameter(6,xmin)
-    fit_function.FixParameter(7,xmax)
+
+
+fit_function = r.TF1("fit_function",epoly2,xmin,xmax,4)
+fit_function.SetParameters(1,1,-0.01,0)
+fit_function.SetParNames("Norm","a","b","c")
 
 signal = r.TF1("signal",Gaussian,xmin,xmax,3)
 signal.SetParameters(mean,sigma,Amp)
@@ -190,7 +176,7 @@ h_toy = h_hist.Clone("h_toy")
 h_toy.Reset()
 lum = np.array([1,15,30,50,60,80,100])
 #lum = np.array([1,125,500,750,1000,2500,5000,7500,10000,12500])
-lum = np.array([1,10,100])
+lum = np.array([10])
 h_chi2_ge = np.zeros(Ntoys)
 h_chi2_param = np.zeros(Ntoys)
 
@@ -234,6 +220,7 @@ for l in lum:
         for i_bin in range(1,h_hist.GetNbinsX()+1):
             if SignalOn:
                 toy[i_bin-1] = R.Poisson(Bern5_dist[i_bin-1] + signal_dist[i_bin-1])
+                #toy[i_bin-1] = Bern5_dist[i_bin-1] + signal_dist[i_bin-1]
             else:
                 #toy[i_bin-1] = Bern5_dist[i_bin-1]
                 toy[i_bin-1] = R.Poisson(Bern5_dist[i_bin-1])
@@ -243,56 +230,52 @@ for l in lum:
         if Epoly2_fit:
             fit_function.SetParameters(1,1,-0.01,1e-6)
             fit_function.FixParameter(0,1)
-        elif Bern5_fit:
-            fit_function.SetParameters(1000,1000,100,100,100,200)
-            fit_function.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
-            fit_function.FixParameter(6,xmin)
-            fit_function.FixParameter(7,xmax)
+            fitresults = h_toy.Fit(fit_function,"SPR0Q")
+            #fit_params = fitresults.GetParameters()
+            #fit_params_err = fitresults.GetErrors()
+            for i in range(1,h_hist.GetNbinsX()+1):
+                fitfunction[i-1] = fit_function(mass[i-1])
+            if fitresults.Status() != 0:
+                Error += 1
+            h_chi2_par = fitresults.Chi2()/fitresults.Ndf()
+            h_chi2.Fill(h_chi2_par)
         
-
-        fitresults = h_toy.Fit(fit_function,"SPR0Q")
-
-        for i in range(1,h_hist.GetNbinsX()+1):
-            fitfunction[i-1] = fit_function(mass[i-1])
-
-        if fitresults.Status() != 0:
-            Error += 1
-
-        h_chi2_par = fitresults.Chi2()/fitresults.Ndf()
-        h_chi2.Fill(h_chi2_par)
-
+        print(h_toy.Integral())
         """George"""
              
-        #lnprob = log_like_gp(mass,toy)
-        #minimumLLH, best_fit_params = fit_minuit_gp(100,lnprob)
-        #kernel_ge = best_fit_params[0]*george.kernels.ExpSquaredKernel(metric=best_fit_params[1])
-        #ge = george.GP(kernel_ge,solver=george.HODLRSolver,mean=np.median(toy))
-        #ge.compute(mass,yerr=np.sqrt(toy))
+        lnprob = log_like_gp(mass,toy)
+        minimumLLH, best_fit_params = fit_minuit_gp(100,lnprob)
+        kernel_ge = best_fit_params[0]*george.kernels.ExpSquaredKernel(metric=best_fit_params[1])
+        ge = george.GP(kernel_ge,solver=george.HODLRSolver,mean=np.median(toy))
+        ge.compute(mass,yerr=np.sqrt(toy))
         #print(ge.get_parameter_vector())
-        #y_pred, y_var = gp.predict(toy_blind,mass,return_var=True)
+        y_pred, y_var = ge.predict(toy,mass,return_var=True)
+        print(np.sqrt(best_fit_params[0]))
         
         lnprob_sig = log_like_gp_sig(mass,toy)
-        minLLH_sig,best_fit_parameters_sig = fit_minuit_gp_sig(100,lnprob_sig)
+        minLLH_sig,best_fit_parameters_sig,best_fit_parameters_sig_errors = fit_minuit_gp_sig(100,lnprob_sig)
         kernel1 = best_fit_parameters_sig[0] * george.kernels.ExpSquaredKernel(metric=best_fit_parameters_sig[1])
         kernel2 = best_fit_parameters_sig[2]*george.kernels.LocalGaussianKernel(location=best_fit_parameters_sig[4],log_width=best_fit_parameters_sig[3])
         kernel = kernel1 + kernel2
         gp = george.GP(kernel=kernel,solver=george.HODLRSolver,mean=np.median(toy))
         gp.compute(mass,yerr=np.sqrt(toy))
 
+        Sigamp = np.sqrt(best_fit_parameters_sig[2])
+        Sigamperror = best_fit_parameters_sig_errors[2]
+        print(Sigamp,r'$\pm$',Sigamperror/(2*Sigamp))
         y_pred_sig, y_covar_sig = gp.predict(toy,mass,return_var=False)
-        mass_2d = np.meshgrid(mass,mass)
         
-        plt.contourf(mass,mass,y_covar_sig)
-        plt.colorbar()
-        plt.show()
-        foobar
+        #plt.contourf(mass,mass,y_covar_sig)
+        #plt.colorbar()
+        #plt.show()
+        #foobar
         #h_best_Amplitude[t] = best_fit_params[0]
         #h_best_lengthscale[t] = best_fit_params[1]
         
         y_pred, y_var = gp.predict(toy,mass,return_var = True)
         chi2_ge = np.sum((toy-y_pred)**2/y_pred)
-        h_chi2_ge[t] = chi2_ge/(len(toy) - len(gp.get_parameter_vector()))
-        print("George Chi2/ndf",h_chi2_ge[t],"Ad-hoc Chi2/ndf",h_chi2_par)
+        h_chi2_ge[t] = chi2_ge/(len(toy) - len(ge.get_parameter_vector()))
+        print("George Chi2/ndf",h_chi2_ge[t])#,"Ad-hoc Chi2/ndf",h_chi2_par)
 
         if t%1000 == 0:
             print(t/1000.)        
@@ -300,33 +283,33 @@ for l in lum:
         if h_chi2_ge[t] < 0.01:
             Overfit += 1
         
-        mass_110135 = []
-        Bkg_110135 = []
-        y_pred_110135 = []
-        y_var_110135 = []
-        signal_dist_110135 = []
-        for i in range(len(mass)):
-            if mass[i-1] >= 110 and mass[i-1] <= 135:
-                mass_110135.append(mass[i-1])
-                Bkg_110135.append(Bern5_dist[i-1])
-                y_pred_110135.append(y_pred[i-1])
-                y_var_110135.append(y_var[i-1])
-                signal_dist_110135.append(signal_dist[i-1])
-        mass_110135 = np.array(mass_110135)
-        Bkg_110135 = np.array(Bkg_110135)
-        y_pred_110135 = np.array(y_pred_110135)
-        y_var_110135 = np.array(y_var_110135)
-        signal_dist_110135 = np.array(signal_dist_110135)
+        #mass_110135 = []
+        #Bkg_110135 = []
+        #y_pred_110135 = []
+        #y_var_110135 = []
+        #signal_dist_110135 = []
+        #for i in range(len(mass)):
+        #    if mass[i-1] >= 110 and mass[i-1] <= 135:
+        #        mass_110135.append(mass[i-1])
+        #        Bkg_110135.append(Bern5_dist[i-1])
+        #        y_pred_110135.append(y_pred[i-1])
+        #        y_var_110135.append(y_var[i-1])
+        #        signal_dist_110135.append(signal_dist[i-1])
+        #mass_110135 = np.array(mass_110135)
+        #Bkg_110135 = np.array(Bkg_110135)
+        #y_pred_110135 = np.array(y_pred_110135)
+        #y_var_110135 = np.array(y_var_110135)
+        #signal_dist_110135 = np.array(signal_dist_110135)
 
 
         plt.clf()
-        #plt.plot(mass,y_pred,'b-')
-        #plt.scatter(mass,toy,color='r')
+        plt.plot(mass,y_pred,'b-')
+        plt.scatter(mass,toy,color='r')
         #plt.fill_between(mass,y_pred-y_var,y_pred+y_var,color='g',alpha=0.5)
-        plt.plot(mass,Bern5_dist-Bern5_dist,color='r')
-        plt.scatter(mass,toy-Bern5_dist,c='k',marker='.')
-        plt.plot(mass,y_pred-Bern5_dist,'b-',label='Res GP')
-        plt.plot(mass,fitfunction-Bern5_dist,'g-',label='Res ad-hoc')
+        #plt.plot(mass,Bern5_dist-Bern5_dist,color='r')
+        #plt.scatter(mass,toy-Bern5_dist,c='k',marker='.')
+        #plt.plot(mass,y_pred-Bern5_dist,'b-',label='Res GP')
+        #plt.plot(mass,fitfunction-Bern5_dist,'g-',label='Res ad-hoc')
         #plt.plot(mass,signal_dist,'m-.',label='signal')
         #plt.fill_between(mass,y_pred-Bern5_dist-y_var/100.,y_pred-Bern5_dist+y_var/100.,color='k',alpha=0.5,label='1% variance')
         #plt.scatter(mass_110135,Bkg_110135-Bkg_110135,c='k',marker='.')
