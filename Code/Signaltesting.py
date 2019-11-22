@@ -36,23 +36,24 @@ def fit_minuit_gp(num,lnprob):
                     error_Amp=0.01,error_sigma=0.01,error_mass0=0.1)#,
                     #fix_sigma=True,fix_mass0=True)
 
-    m.migrad()
-    if m.fval < minLLH:
-        minLLH = m.fval
-        best_fit_parameters = m.args
+        m.migrad()
+        #m.hesse()
+        if m.fval < minLLH:
+            minLLH = m.fval
+            best_fit_parameters = m.args
+            best_fit_parameters_errors = m.np_errors()
 
     print("min LL",minLLH)
     print("Best fit parameters",best_fit_parameters)
-    print("sqrt(Amp)",np.sqrt(best_fit_parameters[0]))
+    print("sqrt(Amp)",np.sqrt(best_fit_parameters[0]),"+/-",best_fit_parameters_errors[0]/(2*np.sqrt(best_fit_parameters[0])))
     print("Sigma**2",best_fit_parameters[1]*np.sqrt(2))
     
     return minLLH, best_fit_parameters
 
 
 mean = 125.
-sigma = 2.
+sigma = 2.*np.sqrt(2)
 Amp = 2000.
-
 
 signal_def = r.TF1("signal_def","gaus",110,160,3)
 signal_cust = r.TF1("signal_cust",Gaussian,110,160,3)
@@ -68,8 +69,8 @@ toy = np.zeros(Nbins)
 h_toy = r.TH1D("h_toy","Signal",Nbins,110,160)
 
 for i in range(100):
-    #toy[i] = signal_cust(mass[i])
-    toy[i] = signal_def(mass[i])
+    toy[i] = signal_cust(mass[i])
+    #toy[i] = signal_def(mass[i])
     h_toy.SetBinContent(i+1,toy[i])
     h_toy.SetBinError(i+1,np.sqrt(toy[i]))
 

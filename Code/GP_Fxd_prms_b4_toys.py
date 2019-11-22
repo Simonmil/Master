@@ -4,6 +4,7 @@ import george
 import ROOT as r
 from scipy.interpolate import BPoly
 from iminuit import Minuit
+import time
 
 R = r.TRandom(0)
 
@@ -123,23 +124,21 @@ Bern5.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
 Bern5.FixParameter(6,xmin)
 Bern5.FixParameter(7,xmax)
 h_hist.Fit(Bern5,"SR0")
-h_truth = Bern5.CreateHistogram()
-binwidth = h_truth.GetBinWidth(1)
-nbins = h_truth.GetNbinsX()
+binwidth = h_hist.GetBinWidth(1)
+nbins = h_hist.GetNbinsX()
 
 
-
-xmin = h_truth.GetXaxis().GetXmin()
-xmax = h_truth.GetXaxis().GetXmax()
-#h_truth.Rebin(int(2./((xmax-xmin)/nbins)))
-#nbins = h_truth.GetNbinsX()
+xmin = h_hist.GetXaxis().GetXmin()
+xmax = h_hist.GetXaxis().GetXmax()
+#h_hist.Rebin(int(2./((xmax-xmin)/nbins)))
+#nbins = h_hist.GetNbinsX()
 
 
 
 
-Ntoys = 1
+Ntoys = 5
 mean = 125
-sigma = 2
+sigma = 2*np.sqrt(2)
 Amp = 1800
 
 
@@ -151,15 +150,15 @@ fit_function = r.TF1("fit_function",epoly2,xmin,xmax,4)
 fit_function.SetParameters(1,1,-0.01,0)
 fit_function.SetParNames("Norm","a","b","c")
 
-h_toy = h_truth.Clone("h_toy")
+h_toy = h_hist.Clone("h_toy")
 h_toy.Reset()
 lum = np.array([1,50,100,500,1000])
 lum = np.array([1,15,30,50,70,85,100])
-lum = np.array([1,50,100])
+lum = np.array([1,10])
 
-mass = np.zeros(h_truth.GetNbinsX())
-toy = np.zeros(h_truth.GetNbinsX())
-truth = np.zeros(h_truth.GetNbinsX())
+mass = np.zeros(h_hist.GetNbinsX())
+toy = np.zeros(h_hist.GetNbinsX())
+truth = np.zeros(h_hist.GetNbinsX())
 
 
 """
@@ -173,8 +172,8 @@ bestminLHH = np.inf
 """
 
 
-for i_bin in range(1,h_truth.GetNbinsX()+1):
-    mass[i_bin-1] = h_truth.GetBinCenter(i_bin)
+for i_bin in range(1,h_hist.GetNbinsX()+1):
+    mass[i_bin-1] = h_hist.GetBinCenter(i_bin)
     toy[i_bin-1] = R.Poisson(Bern5(mass[i_bin-1]))
 #lnprob = log_like_gp(mass,toy)
 #minLLH, best_fit_parameters = fit_minuit_gp(100,lnprob)
@@ -204,6 +203,8 @@ chi2_mean_gp_err = np.zeros(len(lum))
 chi2_mean_par = np.zeros(len(lum))
 chi2_mean_par_err = np.zeros(len(lum))
 chi2 = np.zeros(Ntoys)
+EffNdf = np.zeros(Ntoys)
+EffNdf_mean = np.zeros(len(lum))
 chi2_mean_noNDF = np.zeros(len(lum))
 chi2_var_noNDF = np.zeros(len(lum))
 chi2_fit = np.zeros(Ntoys)
@@ -212,31 +213,31 @@ color = ['r','b','g','c','m','k','chartreuse']
 index = 0
 Error = 0
 
-canvas1 = r.TCanvas("canvas1","Standard Canvas",600,400)
-canvas1.SetLeftMargin(0.125)
-canvas1.SetBottomMargin(0.125)
+#canvas1 = r.TCanvas("canvas1","Standard Canvas",600,400)
+#canvas1.SetLeftMargin(0.125)
+#canvas1.SetBottomMargin(0.125)
 
-hs = r.THStack("hs","Chi2 ad-hoc")
+#hs = r.THStack("hs","Chi2 ad-hoc")
 plt.figure(1)
 for l in lum:
     print("Luminosity: ",l)
     for i in range(Ntoys):
-        for i_bin in range(1,h_truth.GetNbinsX()+1):
-            mass[i_bin-1] = h_truth.GetBinCenter(i_bin)
+        for i_bin in range(1,h_hist.GetNbinsX()+1):
+            mass[i_bin-1] = h_hist.GetBinCenter(i_bin)
             toy[i_bin-1] = R.Poisson(l*Bern5(mass[i_bin-1]))
             h_toy.SetBinContent(i_bin,toy[i_bin-1])
             h_toy.SetBinError(i_bin,np.sqrt(toy[i_bin-1]))
 
         """ad-hoc"""
-        fit_function.SetParameters(1,1,-0.01,1e-6)
-        fit_function.FixParameter(0,1)       
+        #fit_function.SetParameters(1,1,-0.01,1e-6)
+        #fit_function.FixParameter(0,1)       
 
-        fitresults = h_toy.Fit(fit_function,"SPR0Q")
-        canvas1.Update()
-        if fitresults.Status() != 0:
-            Error += 1
+        #fitresults = h_toy.Fit(fit_function,"SPR0Q")
+        #canvas1.Update()
+        #if fitresults.Status() != 0:
+        #    Error += 1
 
-        h_chi2.Fill(fitresults.Chi2()/fitresults.Ndf())
+        #h_chi2.Fill(fitresults.Chi2()/fitresults.Ndf())
 
 
         """george"""
@@ -248,12 +249,25 @@ for l in lum:
         kernel = best_fit_parameters[0]*george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
         #kernel = np.exp(100)*george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
         gp = george.GP(kernel,solver=george.HODLRSolver,mean=np.median(toy))
+        
         gp.compute(mass,yerr=np.sqrt(toy))
+        
+        mass_2d = np.atleast_2d(mass).T
+        covar = gp.kernel.get_value(mass_2d)
+        invcovar = np.linalg.inv(covar + toy*np.eye(len(mass)))
+        covarprod = np.matmul(covar,invcovar)
+        #print(covarprod)
+        EffNdf[i] = covarprod.trace()
+
 
         y_pred = gp.predict(toy,mass)[0]
-        print(len(toy)-len(gp.get_parameter_vector(include_frozen=True)))
+        print(len(toy)-len(gp.get_parameter_vector()))
         chi2[i] = np.sum((toy-y_pred)**2/y_pred)
-        chi2_fit[i] = chi2[i]/(len(toy)-3-len(gp.get_parameter_vector()))
+        chi2_fit[i] = chi2[i]/(len(toy)-len(gp.get_parameter_vector()))
+        print('chi2',chi2[i],'EFfNdf',covarprod.trace(),'HPndf',len(gp.get_parameter_vector()))
+        
+
+        
 
         #plt.clf()
         #plt.scatter(mass,toy,c='r',alpha=0.8)
@@ -262,11 +276,12 @@ for l in lum:
 
     chi2_mean_par[index] = h_chi2.GetMean()
     chi2_mean_par_err[index] = h_chi2.GetStdDev()
-    h_chi2_l = h_chi2.Clone("h_chi2_l")
-    hs.Add(h_chi2_l)
+    #h_chi2_l = h_chi2.Clone("h_chi2_l")
+    #hs.Add(h_chi2_l)
+    EffNdf_mean[index] = np.mean(EffNdf)
 
     h_chi2.Reset()
-    plt.hist(chi2_fit,bins=50,color=color[index],label='Lum: %.1f'%l,alpha=0.8,histtype='step')
+    plt.hist(chi2,bins=50,color=color[index],label='Lum: %.1f'%l,alpha=0.8,histtype='step')
     plt.xlabel("Chi2")
     plt.ylabel("#")
     chi2_mean_noNDF[index] = np.mean(chi2)
@@ -276,8 +291,8 @@ for l in lum:
 
     index += 1
 
-hs.Draw("plc nostack")
-canvas1.Update()
+#hs.Draw("plc nostack")
+#canvas1.Update()
 plt.legend()
 plt.title("Test statistic distribution")
 #plt.show()
@@ -291,17 +306,17 @@ plt.ylabel(r'$\chi^2/ndf$')
 plt.legend()
 plt.savefig('Lum_chi2_mean.png',format='png')
 
-plt.show()
+#plt.show()
 
-print("chi2 mean: ",chi2_mean_noNDF," chi2 var: ", chi2_var_noNDF, " factor: ", chi2_var_noNDF/chi2_mean_noNDF)
+print("chi2 mean: ",chi2_mean_noNDF," chi2 var: ", chi2_var_noNDF, " factor: ", chi2_var_noNDF/chi2_mean_noNDF, "EffNdf",EffNdf_mean)
 
 
 """ Spurious signal testing"""
-
+"""
 
 Ntoys = 1
 for t in range(Ntoys):
-    for i_bin in range(1,h_truth.GetNbinsX()+1):
+    for i_bin in range(1,h_hist.GetNbinsX()+1):
         toy[i_bin-1] = R.Poisson(10*(Bern5(mass[i_bin-1])+signal(mass[i_bin-1])))
         h_toy.SetBinContent(i_bin,toy[i_bin-1])
         h_toy.SetBinError(i_bin,np.sqrt(toy[i_bin-1]))
@@ -347,5 +362,5 @@ for t in range(Ntoys):
     #plt.pause(0.05)
     plt.show()
 
-
+"""
 

@@ -18,8 +18,8 @@ SignalOn = True
 Sigmodel = True
 Sigmodel = False
 
-Epoly2_fit = False
 Epoly2_fit = True
+Epoly2_fit = False
 
 
 def epoly2(vars,pars):
@@ -52,7 +52,7 @@ class log_like_gp:
             gp.compute(self.x,yerr=np.sqrt(self.y))
             return -gp.log_likelihood(self.y,self.x)
         except:
-            np.inf
+            return np.inf
 
 def fit_minuit_gp(num,lnprob):
     minLLH = np.inf
@@ -60,7 +60,7 @@ def fit_minuit_gp(num,lnprob):
     for i in range(num):
         #print(i+1)
         init0 = np.random.random()*1e2
-        init1 = np.random.random()*10.
+        init1 = np.random.random()*10000.
         m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,
                     error_Amp = 10,error_length = 0.1,
                     limit_Amp = (100.,1e15), limit_length = (1,20000))
@@ -108,18 +108,21 @@ def fit_minuit_gp_sig(num,lnprob):
                     limit_Amp = (100,1e15), limit_length = (4000,20000), limit_Sigamp=(0,10000000000000),limit_sigma=(0,4),limit_mass=(100,180),
                     fix_sigma = False,fix_mass = True)
         
+        
         m.migrad()
-        #print(m.migrad_ok())
+        
+        
         if m.fval < minLLH:
-            #print(m.np_errors())
-            print(m.migrad_ok())
+            #print(m.np_errors())tf.
             #print(m.args[2]/m.np_errors()[2])
             m_best = m
             minLLH = m.fval
             best_fit_parameters = m.args
+            print(m.get_param_states())
             best_fit_parameters_errors = m.np_errors()
-            #print(m.mnprofile("Sigamp",bound=(best_fit_parameters[2]/2,best_fit_parameters[2]*1.5),bins=3))
+            #print(m.mnprofile("Sigamp",bound=(best_fit_parameters[2],best_fit_parameters[2]),bins=1))
             
+            #print(best_fit_parameters_errors)
     #m_best.minos()
     #m_best.draw_mnprofile("Sigamp")
     print("min LL",minLLH)
@@ -160,7 +163,7 @@ Here, ROOT is used to fit the toy distributions with an ad-hoc function, and GP 
 
 Ntoys = 1
 mean = 125
-sigma = 2
+sigma = 2*np.sqrt(2)
 Amp = 2000
 
 
@@ -176,10 +179,10 @@ h_toy = h_hist.Clone("h_toy")
 h_toy.Reset()
 lum = np.array([1,15,30,50,60,80,100])
 #lum = np.array([1,125,500,750,1000,2500,5000,7500,10000,12500])
-lum = np.array([10])
+lum = np.array([1,10])
 h_chi2_ge = np.zeros(Ntoys)
 h_chi2_param = np.zeros(Ntoys)
-
+chi2_ge = np.zeros(Ntoys)
 
 chi2_mean_ge = np.zeros(len(lum))
 chi2_mean_ge_err = np.zeros(len(lum))
@@ -219,10 +222,11 @@ for l in lum:
         print(t+1)
         for i_bin in range(1,h_hist.GetNbinsX()+1):
             if SignalOn:
-                toy[i_bin-1] = R.Poisson(Bern5_dist[i_bin-1] + signal_dist[i_bin-1])
-                #toy[i_bin-1] = Bern5_dist[i_bin-1] + signal_dist[i_bin-1]
+                #toy[i_bin-1] = R.Poisson(Bern5_dist[i_bin-1] + signal_dist[i_bin-1])
+                toy[i_bin-1] = Bern5_dist[i_bin-1] + signal_dist[i_bin-1]
             else:
                 #toy[i_bin-1] = Bern5_dist[i_bin-1]
+                #print(toy)
                 toy[i_bin-1] = R.Poisson(Bern5_dist[i_bin-1])
             h_toy.SetBinContent(i_bin,toy[i_bin-1]) 
             h_toy.SetBinError(i_bin,np.sqrt(toy[i_bin-1]))
@@ -240,17 +244,18 @@ for l in lum:
             h_chi2_par = fitresults.Chi2()/fitresults.Ndf()
             h_chi2.Fill(h_chi2_par)
         
-        print(h_toy.Integral())
+        #print(h_toy.Integral())
         """George"""
-             
         lnprob = log_like_gp(mass,toy)
         minimumLLH, best_fit_params = fit_minuit_gp(100,lnprob)
         kernel_ge = best_fit_params[0]*george.kernels.ExpSquaredKernel(metric=best_fit_params[1])
         ge = george.GP(kernel_ge,solver=george.HODLRSolver,mean=np.median(toy))
         ge.compute(mass,yerr=np.sqrt(toy))
-        #print(ge.get_parameter_vector())
-        y_pred, y_var = ge.predict(toy,mass,return_var=True)
-        print(np.sqrt(best_fit_params[0]))
+        print(ge.get_parameter_vector())
+        y_pred, y_covar = ge.predict(toy,mass,return_var=False)
+        #print(len(toy))
+        #print(np.sqrt(best_fit_params[0]))
+            
         
         lnprob_sig = log_like_gp_sig(mass,toy)
         minLLH_sig,best_fit_parameters_sig,best_fit_parameters_sig_errors = fit_minuit_gp_sig(100,lnprob_sig)
@@ -262,21 +267,22 @@ for l in lum:
 
         Sigamp = np.sqrt(best_fit_parameters_sig[2])
         Sigamperror = best_fit_parameters_sig_errors[2]
-        print(Sigamp,r'$\pm$',Sigamperror/(2*Sigamp))
+        print(Sigamp,'+/-',Sigamperror/(2*Sigamp))
         y_pred_sig, y_covar_sig = gp.predict(toy,mass,return_var=False)
         
-        #plt.contourf(mass,mass,y_covar_sig)
-        #plt.colorbar()
-        #plt.show()
+        plt.contourf(mass,mass,y_covar)
+        plt.colorbar()
+        plt.show()
         #foobar
         #h_best_Amplitude[t] = best_fit_params[0]
         #h_best_lengthscale[t] = best_fit_params[1]
         
-        y_pred, y_var = gp.predict(toy,mass,return_var = True)
-        chi2_ge = np.sum((toy-y_pred)**2/y_pred)
-        h_chi2_ge[t] = chi2_ge/(len(toy) - len(ge.get_parameter_vector()))
-        print("George Chi2/ndf",h_chi2_ge[t])#,"Ad-hoc Chi2/ndf",h_chi2_par)
+        #y_pred, y_var = gp.predict(toy,mass,return_var = True)
 
+        chi2_ge[t] = np.sum((toy-y_pred)**2/y_pred)
+        h_chi2_ge[t] = chi2_ge[t]/(len(toy) - len(ge.get_parameter_vector()))
+        print("George Chi2/ndf",h_chi2_ge[t])#,"Ad-hoc Chi2/ndf",h_chi2_par)
+        
         if t%1000 == 0:
             print(t/1000.)        
          
@@ -302,9 +308,9 @@ for l in lum:
         #signal_dist_110135 = np.array(signal_dist_110135)
 
 
-        plt.clf()
-        plt.plot(mass,y_pred,'b-')
-        plt.scatter(mass,toy,color='r')
+        #plt.clf()
+        #plt.plot(mass,y_pred,'b-')
+        #plt.scatter(mass,toy,color='r')
         #plt.fill_between(mass,y_pred-y_var,y_pred+y_var,color='g',alpha=0.5)
         #plt.plot(mass,Bern5_dist-Bern5_dist,color='r')
         #plt.scatter(mass,toy-Bern5_dist,c='k',marker='.')
@@ -315,11 +321,11 @@ for l in lum:
         #plt.scatter(mass_110135,Bkg_110135-Bkg_110135,c='k',marker='.')
         #plt.plot(mass_110135,y_pred_110135-Bkg_110135,'b-')
         #plt.fill_between(mass_110135,y_pred_110135-Bkg_110135-y_var_110135,y_pred_110135-Bkg_110135+y_var_110135,color='g',alpha=0.5,label='variance')
-        plt.legend()
-        plt.xlabel(r"$m_{\gamma\gamma}[GeV]$")
-        plt.ylabel("Residuals")
-        plt.title(r'Luminosity $\int Ldt = %.1f fb^{-1}$'%(36*l))
-        plt.pause(0.01)
+        #plt.legend()
+        #plt.xlabel(r"$m_{\gamma\gamma}[GeV]$")
+        #plt.ylabel("Residuals")
+        #plt.title(r'Luminosity $\int Ldt = %.1f fb^{-1}$'%(36*l))
+        #plt.pause(5)
         #plt.show()
         
     h_mean_best_Amplitude[index] = np.mean(h_best_Amplitude)
@@ -333,10 +339,10 @@ for l in lum:
     hs.Add(h_chi2_l)
 
     h_chi2.Reset()
-    #plt.figure(2)
-    #plt.hist(h_chi2_ge,bins=50,color=color[index],label='Lum: %.1f'%l,alpha=0.8,histtype='step')
-    #plt.xlabel("Chi2")
-    #plt.ylabel("#")
+    #plt.figure(1)
+    plt.hist(chi2_ge,bins=50,color=color[index],label='Lum: %.1f'%l,alpha=0.8,histtype='step')
+    plt.xlabel("Chi2")
+    plt.ylabel("#")
 
     index += 1
 
@@ -345,9 +351,10 @@ for l in lum:
 
 #hs.Draw("plc nostack")
 #canvas1.Update()
-#plt.legend()
-#plt.title("Test statistic distribution")
-
+plt.legend()
+plt.title("Test statistic distribution")
+plt.savefig('chi2dist.png')
+plt.close()
 
 plt.figure(2)
 plt.errorbar(lum,chi2_mean_ge,yerr=chi2_mean_ge_err,marker=".",label='GP',c='b')
@@ -357,8 +364,8 @@ plt.xlabel("Lum scale")
 plt.ylabel(r'$\chi^2$/ndf')
 plt.legend()
 plt.title("Chi2/ndf Ad-hoc and GP")
-
-
+plt.savefig('chi2dmean.png')
+plt.close()
 #plt.figure(3)
 #plt.plot(mass,Bern5_dist)
 

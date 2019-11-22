@@ -6,7 +6,7 @@ import george
 x = np.random.uniform(-10,10,25)
 x_ = np.linspace(-10,10,1000)
 
-
+"""
 kernel = george.kernels.ExpSquaredKernel(metric=1)
 gp = george.GP(kernel=kernel,solver=george.HODLRSolver)
 gp.compute(x,yerr=0.1)
@@ -66,6 +66,37 @@ plt.fill_between(x_,y_pred_RQ-y_var_RQ,y_pred_RQ+y_var_RQ,alpha=0.5,color='g')
 plt.title('Rational Quadratic: metric=1, log_alpha=1')
 
 
+"""
+
+
+x = np.linspace(110,160,50)
+
+def CB(mass,alpha,N_s,sigma_CB,mass_CB,n):
+    y = np.zeros(len(mass))
+    for i in range(len(mass)):
+        t = (mass[i] - mass_CB)/sigma_CB
+        if t > -alpha:
+            y[i] = N_s * np.exp(-t*t/2.)
+        else:
+            y[i] = N_s * (n/np.abs(alpha))**n * (n/np.abs(alpha) - np.abs(alpha) - t)**(-n) * np.exp(-np.abs(alpha)*np.abs(alpha)/2.)
+    return y
+
+
+N_s = 2000
+alpha = 1.31
+sigma_CB = 1.73
+mass_CB = 1
+n = 100
+
+
+y = CB(x,alpha,N_s,sigma_CB,mass_CB,n)
+
+plt.plot(x,y)
 plt.show()
+
+
+
+
+
 
 
