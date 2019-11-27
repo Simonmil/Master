@@ -41,7 +41,7 @@ def fit_minuit_gp(num,lnprob):
         init1 = np.random.random()*10000.
         m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,
                     error_Amp = 10, error_length = 0.1,
-                    limit_Amp = (100,1e15), limit_length = (2000,20000000))
+                    limit_Amp = (100,1e15), limit_length = (4000,20000000))
         
         m.migrad()
 
@@ -117,7 +117,8 @@ res_Matern = np.zeros(len(mass))
 
 for l in lum:
     for t in range(Ntoys):
-        toy = l*Bkg
+        toy = l*(Bkg)
+        toy = l*(Bkg+signal_dist)
         #for i in range(len(mass)):
         #    toy[i] = R.Poisson(l*Bkg[i])
 
@@ -131,16 +132,16 @@ for l in lum:
         covarmatrix = gp.get_matrix(mass)
         invcovarmatrix = np.linalg.inv(covarmatrix + toy*np.eye(len(mass)))
         covarprod = np.matmul(covarmatrix,invcovarmatrix)
-        y_pred, y_var = gp.predict(toy,mass,return_var=True)
+        y_pred_SE, y_var_se = gp.predict(toy,mass,return_var=True)
         Effndf = covarprod.trace()
 
-        chi2 = np.sum((toy-y_pred)**2/y_pred)
+        chi2 = np.sum((toy-y_pred_SE)**2/y_pred_SE)
         chi2_ndf = chi2/(len(toy) - Effndf)
         print("Chi2/ndf SE",chi2_ndf)
 
 
-        res_SE += toy-y_pred
-
+        res_SE += toy-y_pred_SE
+        """
         lnprob = log_like_gp_matern(mass,toy)
         minimumLLH,best_fit_parameters,best_fit_parameters_errors = fit_minuit_gp(100,lnprob)
         print("Amp",best_fit_parameters[0],"+/-",best_fit_parameters_errors[0])
@@ -151,39 +152,34 @@ for l in lum:
         covarmatrix = gp.get_matrix(mass)
         invcovarmatrix = np.linalg.inv(covarmatrix + toy*np.eye(len(mass)))
         covarprod = np.matmul(covarmatrix,invcovarmatrix)
-        y_pred, y_var = gp.predict(toy,mass,return_var=True)
+        y_pred_m, y_var_m = gp.predict(toy,mass,return_var=True)
         Effndf = covarprod.trace()
 
-        chi2 = np.sum((toy-y_pred)**2/y_pred)
+        chi2 = np.sum((toy-y_pred_m)**2/y_pred_m)
         chi2_ndf = chi2/(len(toy) - Effndf)
         print("Chi2/ndf Matern",chi2_ndf)
-        res_Matern += toy-y_pred
-        
+        res_Matern += toy-y_pred_m
+        """
+    
     plt.figure(1)
-    #plt.scatter(mass,toy,marker='.')
-    #plt.plot(mass,y_pred,'r-')
-    plt.plot(mass,np.zeros(len(mass)),color='r')
-    #plt.scatter(mass,toy-toy,c='k',marker='.')
-    plt.plot(mass,res_SE,'b-',label='Res GP SE')
-    #plt.fill_between(mass,toy-y_pred-np.sqrt(y_var),toy-y_pred+np.sqrt(y_var),color='k',alpha=0.5,label=r'$1\sigma$')
-    #plt.plot(mass,l*signal_dist,'c-.')
+    plt.scatter(mass,toy,marker='.',color='k')
+    plt.plot(mass,y_pred_SE,'r-',label='GP SE')
+    #plt.plot(mass,y_pred_m,'b-',label='GP Matern')
     plt.legend()
     plt.xlabel(r'$m_{\gamma\gamma}[GeV]$')
-    plt.ylabel("Residuals")
-    plt.title('SE Lum %.0f'%(36*l))
+    plt.ylabel("Events")
+    plt.title('Distribution Lum %.0f'%(36*l))
 
     plt.figure(2)
-    #plt.scatter(mass,toy,marker='.')
-    #plt.plot(mass,y_pred,'r-')
-    plt.plot(mass,np.zeros(len(mass)),color='r')
-#    plt.scatter(mass,toy-toy,c='k',marker='.')
-    plt.plot(mass,res_Matern,'b-',label='Res GP Matern')
+    plt.plot(mass,np.zeros(len(mass)),color='k')
+    plt.plot(mass,res_SE,'r-',label='Res GP SE')
+    #plt.plot(mass,res_Matern,'b-',label='Res GP Matern')
     
     #plt.fill_between(mass,toy-y_pred-np.sqrt(y_var),toy-y_pred+np.sqrt(y_var),color='k',alpha=0.5,label=r'$1\sigma$')
     #plt.plot(mass,l*signal_dist,'c-.')
     plt.legend()
     plt.xlabel(r'$m_{\gamma\gamma}[GeV]$')
     plt.ylabel("Residuals")
-    plt.title('Matern Lum %.0f'%(36*l))
+    plt.title('SE vs Matern Lum %.0f'%(36*l))
     plt.show()
 
