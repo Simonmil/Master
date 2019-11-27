@@ -84,7 +84,7 @@ def fit_minuit_gp_sig(num,lnprob,fix=False):
                     fix_sigma = fix,fix_mass = fix)
         
         m.migrad()
-
+        m.hesse()
         if m.fval < minLLH:
             #print(m.migrad_ok())
             m_best = m
@@ -119,9 +119,10 @@ def fit_minuit_gp(num,lnprob):
         init1 = np.random.random()*10000.
         m = Minuit(lnprob,throw_nan=False,pedantic=False,print_level=0,Amp=init0,length=init1,
                     error_Amp = 10, error_length = 0.1,
-                    limit_Amp = (100,1e15), limit_length = (4000,20000))
+                    limit_Amp = (100,1e15), limit_length = (5000,2000000))
         
         m.migrad()
+        m.hesse()
 
         if m.fval < minLLH:
             #print(m.migrad_ok())
@@ -134,7 +135,19 @@ def fit_minuit_gp(num,lnprob):
     print("best fit parameters",best_fit_parameters)
     return minLLH, best_fit_parameters, best_fit_parameters_errors
 
-
+class log_like_gp_matern:
+    def __init__(self,x,y):
+        self.x = x
+        self.y = y
+    
+    def __call__(self,Amp,length):
+        kernel = Amp*george.kernels.Matern32Kernel(metric=length)
+        gp = george.GP(kernel=kernel,solver=george.HODLRSolver)
+        try:
+            gp.compute(self.x,yerr=np.sqrt(self.y))
+            return -gp.log_likelihood(self.y)
+        except:
+            return np.inf
 
 
 
@@ -157,7 +170,9 @@ for small luminosities. Then we see if epoly2 and GP can follow for increasing L
 
 Bern5 = r.TF1("Bern5",Bern,xmin,xmax,8)
 Bern5.SetParameters(1,0.1,0.01,0.001,0.0001,0.00001)
+#Bern5.SetParameters(1,0.1,0.01,0.001,0.0001)
 Bern5.SetParNames("c0","c1","c2","c3","c4","c5","xmin","xmax")
+#Bern5.SetParNames("c0","c1","c2","c3","c4","xmin","xmax")
 Bern5.FixParameter(6,xmin)
 Bern5.FixParameter(7,xmax)
 h_hist.Fit(Bern5,"SR0")
@@ -169,24 +184,29 @@ Bkg_fitfunction = np.zeros(h_hist.GetNbinsX())
 Sig_fitfunction = np.zeros(h_hist.GetNbinsX())
 
 
-Ntoys = 1000
+Ntoys = 1
 mean = 125
-sigma = 2*np.sqrt(2)
+sigma = 2
 Amp = 2000
+print(Amp/(np.sqrt(2*np.pi)*sigma))
 lum = np.array([1,10,100])
-#lum = np.array([1,10])
+#lum = np.array([1])
 
 Bkg_fit_function = r.TF1("Bkg_fit_function",epoly2,xmin,xmax,4)
 Bkg_fit_function.SetParameters(1,1,-0.01,1e-6)
 Bkg_fit_function.SetParNames("Norm","a","b","c")
+#Bkg_fit_function.FixParameter(0,1)
+
+#h_hist.Fit(Bkg_fit_function,"SR0")
+
 
 signal = r.TF1("signal",Gaussian,xmin,xmax,3)
 signal.SetParameters(Amp,mean,sigma)
 signal.SetParNames("Amplitude","mean","Sigma")
 
 Sig_fit_function = r.TF1("Sig_fit_function",SigFit,xmin,xmax,7)
-Bkg_fit_function.SetParameters(1,1,-0.01,1e-6,mean,sigma,Amp)
-Bkg_fit_function.SetParNames("Norm","a","b","c","Mean","Sigma","Amplitude")
+Sig_fit_function.SetParameters(1,1,-0.01,1e-6,mean,sigma,Amp)
+Sig_fit_function.SetParNames("Norm","a","b","c","Mean","Sigma","Amplitude")
 
 
 h_toy = h_hist.Clone("h_toy")
@@ -216,6 +236,7 @@ hs = r.THStack("hs","Chi2 ad-hoc")
 for i in range(1,h_hist.GetNbinsX()+1):
     mass[i-1] = h_hist.GetBinCenter(i)
     Bern5_dist[i-1] = Bern5(mass[i-1])
+    #Bern5_dist[i-1] = Bkg_fit_function(mass[i-1])
     signal_dist[i-1] = signal(mass[i-1])
     bkg_plus_sig[i-1] = Bern5_dist[i-1] + signal_dist[i-1]
     h_bkg.SetBinContent(i,Bern5_dist[i-1])
@@ -230,6 +251,8 @@ h_mean_best_lengthscale = np.zeros(len(lum))
 h_chi2_ge = np.zeros(Ntoys)
 chi2_mean_ge = np.zeros(len(lum))
 chi2_mean_ge_err = np.zeros(len(lum))
+chi2_mean_matern = np.zeros(len(lum))
+chi2_mean_matern_err = np.zeros(len(lum))
 chi2_mean_par = np.zeros(len(lum))
 chi2_mean_par_err = np.zeros(len(lum))
 
@@ -245,22 +268,23 @@ for l in lum:
     print("=================================================================================")
     print("========================= Background fit to b-only ==============================")
     print("=================================================================================")
-    toy = l*Bern5_dist
-    h_bkg.Scale(l)
+    toy = l*bkg_plus_sig
+    h_bkgsig.Scale(l)
 
     Bkg_fit_function.SetParameters(1,1,-0.01,1e-6)
     Bkg_fit_function.FixParameter(0,1)
-    fitresult = h_bkg.Fit(Bkg_fit_function,"SPRQ")
+    #fitresult = h_bkg.Fit(Bkg_fit_function,"SPRQ")
+    fitresult = h_bkgsig.Fit(Bkg_fit_function,"SPRQ")
     canvas1.Update()
 
     if fitresult.Status() != 0:
         print("Fit failed!")
 
     h_chi2_par = fitresult.Chi2()/fitresult.Ndf()
-    """
-    THE LENGTH SCALE l MEANS THAT I NEED TO RESCALE THE X-AXIS BY THE LENGTH. 1->10 WITH l=1 MEANS THAT l=0.5 GIVES 1->5.
-    WHAT DOES THAT MEAN FOR ME? l = 87 -> scale: x=1->2
-    """
+    
+    #THE LENGTH SCALE l MEANS THAT I NEED TO RESCALE THE X-AXIS BY THE LENGTH. 1->10 WITH l=1 MEANS THAT l=0.5 GIVES 1->5.
+    #WHAT DOES THAT MEAN FOR ME? l = 87 -> scale: x=1->2
+    
     lnprob = log_like_gp(mass,toy)
     minimumLLH, best_fit_parameters,best_fit_parameters_errors = fit_minuit_gp(100,lnprob)
     kernel = best_fit_parameters[0]*george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
@@ -310,24 +334,24 @@ for l in lum:
     plt.savefig(save_path + 'ContCov_lum%.0f'%(36*l))
     plt.close()
 
-    """
-    fig, ax1 = plt.subplots()
-    ax2 = ax1.twinx()
-    ax1.plot(lum,h_mean_best_Amplitude,'b-')
-    ax2.plot(lum,h_mean_best_lengthscale,'r-')
-    ax1.set_xlabel("Luminosity scale factor")
-    ax1.set_ylabel("Amplitude value")
-    ax2.set_ylabel("Length scale value")
-    plt.title("Amplitude and lengthscale evolution")
-    plt.savefig(save_path + 'ParamEvoLum%.0f.png'%(36*l))
-    #plt.show()
-    plt.close()
     
-    index += 1
-    ajgjgjgjg = 251
-    if ajgjgjgjg == 251:
-        continue
-    """
+    #fig, ax1 = plt.subplots()
+    #ax2 = ax1.twinx()
+    #ax1.plot(lum,h_mean_best_Amplitude,'b-')
+    #ax2.plot(lum,h_mean_best_lengthscale,'r-')
+    #ax1.set_xlabel("Luminosity scale factor")
+    #ax1.set_ylabel("Amplitude value")
+    #ax2.set_ylabel("Length scale value")
+    #plt.title("Amplitude and lengthscale evolution")
+    #plt.savefig(save_path + 'ParamEvoLum%.0f.png'%(36*l))
+    #plt.show()
+    #plt.close()
+    
+    #index += 1
+    #ajgjgjgjg = 251
+    #if ajgjgjgjg == 251:
+    #    continue
+    
     
     
     print("=================================================================================")
@@ -405,7 +429,7 @@ for l in lum:
     h_chi2_par = fitresult.Chi2()/fitresult.Ndf()
 
     lnprob = log_like_gp_sig(mass,toy)
-    minimumLLH, best_fit_parameters, best_fit_parameters_errors = fit_minuit_gp_sig(100,lnprob,fix=True)
+    minimumLLH, best_fit_parameters, best_fit_parameters_errors = fit_minuit_gp_sig(100,lnprob,fix=False)
     kernel_bkg = best_fit_parameters[0]*george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
     kernel_sig = best_fit_parameters[2]*george.kernels.LocalGaussianKernel(location=best_fit_parameters[4],log_width=best_fit_parameters[3])
     kernel = kernel_bkg+kernel_sig
@@ -448,7 +472,7 @@ for l in lum:
     index += 1
 
 
-
+foobar
 print("=================================================================================")
 print("========================= Background fit to b-only ==============================")
 print("=================================================================================")
@@ -459,11 +483,14 @@ chi2_mean_gp_err = np.zeros(len(lum))
 chi2_mean_par = np.zeros(len(lum))
 chi2_mean_par_err = np.zeros(len(lum))
 chi2 = np.zeros(Ntoys)
+chi2_m = np.zeros(Ntoys)
 EffNdf = np.zeros(Ntoys)
+EffNdf_m = np.zeros(Ntoys)
 EffNdf_mean = np.zeros(len(lum))
 chi2_mean_noNDF = np.zeros(len(lum))
 chi2_var_noNDF = np.zeros(len(lum))
 chi2_fit = np.zeros(Ntoys)
+chi2_fit_m = np.zeros(Ntoys)
 h_chi2 = r.TH1D("h_chi2","Chi2 ad-hoc",100,0,20)
 color = ['r','b','g','c','m','k','chartreuse']
 index = 0
@@ -509,6 +536,23 @@ for l in lum:
         chi2[t] = np.sum((toy-y_pred)**2/y_pred)
         chi2_fit[t] = chi2[t]/(len(toy) - EffNdf[t])
 
+        lnprob = log_like_gp_matern(mass,toy)
+        minimumLLH, best_fit_parameters,best_fit_parameters_errors = fit_minuit_gp(100,lnprob)
+        kernel = best_fit_parameters[0]*george.kernels.Matern32Kernel(metric=best_fit_parameters[1])
+        ge = george.GP(kernel,solver=george.HODLRSolver,mean=np.median(toy))
+        ge.compute(mass,yerr=np.sqrt(toy))
+        covarmatrix = ge.get_matrix(mass)
+        invcovarmatrix = np.linalg.inv(covarmatrix + toy*np.eye(len(mass)))
+        covmarprod = np.matmul(covarmatrix,invcovarmatrix)
+        y_pred, y_var = ge.predict(toy,mass,return_var=True)
+
+        EffNdf_m[t] = covmarprod.trace()
+
+        chi2_m[t] = np.sum((toy-y_pred)**2/y_pred)
+        chi2_fit_m[t] = chi2[t]/(len(toy) - EffNdf_m[t])
+
+
+
     chi2_mean_par[index] = h_chi2.GetMean()
     chi2_mean_par_err[index] = h_chi2.GetStdDev()
     EffNdf_mean[index] = np.mean(EffNdf)
@@ -517,6 +561,8 @@ for l in lum:
     plt.hist(chi2,bins=50,color=color[index],label='Lum: %.0f'%l,alpha=0.8,histtype='step')
     chi2_mean_ge[index] = np.mean(chi2_fit)
     chi2_mean_ge_err[index] = np.std(chi2_fit)
+    chi2_mean_matern[index] = np.mean(chi2_fit_m)
+    chi2_mean_matern_err[index] = np.std(chi2_fit_m)
 
     index += 1
 
@@ -530,8 +576,9 @@ plt.savefig(save_path+'chi2_b_dist_lum%.0f.png'%(36*l))
 plt.close()
 plt.figure(2)
 plt.plot(lum,np.linspace(1,1,len(lum)),'k')
-plt.errorbar(lum,chi2_mean_ge,yerr=chi2_mean_ge_err,color='r',label='GP',marker='.')
-plt.errorbar(lum,chi2_mean_par,yerr=chi2_mean_par_err,color='b',label='Ad-hoc',marker='.')
+plt.errorbar(lum,chi2_mean_ge,yerr=chi2_mean_ge_err,color='maroon',label='GP',marker='.')
+plt.errorbar(lum,chi2_mean_matern,yerr=chi2_mean_matern_err,color='magenta',label='Matern',marker='.')
+plt.errorbar(lum,chi2_mean_par,yerr=chi2_mean_par_err,color='navy',label='Ad-hoc',marker='.')
 plt.xlabel('Luminosity scale factor')
 plt.ylabel(r'$\chi^2/ndf$')
 plt.title(r'Test statistic evolution')
@@ -732,6 +779,52 @@ What I want my program to do:
     - Find p-values 
 
 """
+Ntoys = 1
+for l in lum:
+    toy = l*bkg_plus_sig
+    h_toy.SetBinContent(i_bin,toy[i_bin-1])
+    h_toy.SetBinError(i_bin,np.sqrt(toy[i_bin-1]))
+    mass_blind = []
+    toy_blind = []
+    for i in range(len(mass)):
+        if mass[i] < 120 or mass[i] > 130:
+            mass_blind.append(mass[i])
+            toy_blind.append(toy[i])
+    mass_blind = np.array(mass_blind)
+    toy_blind = np.array(toy_blind)
+        
+    lnprob = log_like_gp(mass_blind,toy_blind)
+    minLLH, best_fit_parameters, best_fit_parameters_errors = fit_minuit_gp(100,lnprob)
+    kernel = best_fit_parameters[0]*george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
+    #kernel = np.exp(100)*george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
+    gp = george.GP(kernel,solver=george.HODLRSolver)
+    gp.compute(mass_blind,yerr=np.sqrt(toy_blind))
+
+    y_pred, y_var = gp.predict(toy_blind,mass,return_var=True)
+    
+    lnprob_sig = log_like_gp_sig(mass,toy)
+    minLLH_sig,best_fit_parameters_sig, best_fit_parameters_sig_error = fit_minuit_gp_sig(100,lnprob_sig,best_fit_parameters)
+    kernel1 = best_fit_parameters[0] * george.kernels.ExpSquaredKernel(metric=best_fit_parameters[1])
+    kernel2 = best_fit_parameters_sig[2]*george.kernels.LocalGaussianKernel(location=best_fit_parameters_sig[4],log_width=best_fit_parameters_sig[3]**2)
+    kernel = kernel1 + kernel2
+    gp = george.GP(kernel=kernel,solver=george.HODLRSolver)
+    gp.compute(mass,yerr=np.sqrt(toy))
+
+
+    y_pred_sig, y_var_sig = gp.predict(toy,mass,return_var=True)
+
+    res_pred = y_pred_sig-y_pred
+    res_Std = np.sqrt(y_var + y_var_sig)
+
+    #plt.clf()
+    plt.scatter(mass,toy,c='r',alpha=0.8,marker='.')
+    plt.plot(mass,y_pred,'b-')
+    plt.plot(mass,y_pred_sig,'g-')
+    plt.plot(mass,res_pred,'k-')
+    plt.fill_between(mass,y_pred-np.sqrt(y_var),y_pred+np.sqrt(y_var),color='k',alpha=0.4)
+    plt.fill_between(mass,res_pred-res_Std,res_pred+res_Std,color='k',alpha=0.4)
+    #plt.pause(0.05)
+    plt.show()
 
 
 
