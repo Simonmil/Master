@@ -52,9 +52,9 @@ def fit_minuit_gp(num,lnprob):
 
 
 mean = 125.
-sigma = 2.*np.sqrt(2)
+sigma = 3.5
 Amp = 2000.
-
+print(Amp/(np.sqrt(2*np.pi)*sigma))
 signal_def = r.TF1("signal_def","gaus",110,160,3)
 signal_cust = r.TF1("signal_cust",Gaussian,110,160,3)
 
